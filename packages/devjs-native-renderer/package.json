@@ -1,0 +1,16 @@
+{
+  "name": "devjs-native-renderer",
+  "version": "16.0.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-native-renderer"
+  },
+  "dependencies": {
+    "scheduler": "^0.28.0"
+  },
+  "peerDependencies": {
+    "devjs": "^18.0.0"
+  }
+}

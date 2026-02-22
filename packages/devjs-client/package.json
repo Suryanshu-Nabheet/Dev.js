@@ -1,0 +1,29 @@
+{
+  "name": "devjs-client",
+  "description": "Devjs package for consuming streaming models.",
+  "version": "0.1.0",
+  "private": true,
+  "keywords": [
+    "devjs"
+  ],
+  "homepage": "https://devjs.dev/",
+  "bugs": "https://github.com/Suryanshu-Nabheet/dev.js/issues",
+  "license": "MIT",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "flight.js",
+    "cjs/"
+  ],
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-client"
+  },
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "peerDependencies": {
+    "devjs": "^17.0.0"
+  }
+}

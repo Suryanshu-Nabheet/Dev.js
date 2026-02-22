@@ -1,0 +1,33 @@
+# Third party
+**/node_modules
+
+# Not written by hand
+packages/devjs-art/npm/lib
+
+# Build products
+build/
+coverage/
+fixtures/
+scripts/bench/benchmarks/**/*.js
+
+# Devjs repository clone
+scripts/bench/remote-repo/
+
+# Compiler uses its own lint setup
+compiler/
+
+packages/devjs-devtools-core/dist
+packages/devjs-devtools-extensions/chrome/build
+packages/devjs-devtools-extensions/firefox/build
+packages/devjs-devtools-extensions/shared/build
+packages/devjs-devtools-extensions/src/ErrorTesterCompiled.js
+packages/devjs-devtools-fusebox/dist
+packages/devjs-devtools-inline/dist
+packages/devjs-devtools-shared/src/hooks/__tests__/__source__/__compiled__/
+packages/devjs-devtools-shared/src/hooks/__tests__/__source__/__untransformed__/
+packages/devjs-devtools-shell/dist
+packages/devjs-devtools-timeline/dist
+packages/devjs-devtools-timeline/static
+
+# Imported third-party Flow types
+flow-typed/

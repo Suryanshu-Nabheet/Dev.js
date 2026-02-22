@@ -1,0 +1,20 @@
+{
+  "name": "devjs-suspense-test-utils",
+  "version": "0.1.0",
+  "private": true,
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-suspense-test-utils"
+  },
+  "license": "MIT",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "cjs/"
+  ],
+  "peerDependencies": {
+    "devjs": "^17.0.0"
+  }
+}

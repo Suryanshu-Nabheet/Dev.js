@@ -1,0 +1,63 @@
+{
+  "name": "devjs-forgive",
+  "displayName": "devjs Analyzer",
+  "description": "devjs LSP",
+  "license": "MIT",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "compiler/packages/devjs-forgive"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "devjs",
+    "devjs analyzer",
+    "devjs compiler"
+  ],
+  "publisher": "Meta",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "activationEvents": [
+    "onLanguage:javascriptdevjs",
+    "onLanguage:typescriptdevjs"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "devjs-forgive.toggleAll",
+        "title": "devjs Analyzer: Toggle on/off"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "pnpm run compile",
+    "build:compiler": "pnpm workspace babel-plugin-devjs-compiler build --dts",
+    "compile": "rimraf dist && concurrently -n server,client \"scripts/build.mjs -t server\" \"scripts/build.mjs -t client\"",
+    "dev": "pnpm run package && pnpm run install-ext",
+    "install-ext": "code --install-extension devjs-forgive-0.0.0.vsix",
+    "lint": "echo 'no tests'",
+    "package": "rm -f devjs-forgive-0.0.0.vsix && vsce package --yarn",
+    "postinstall": "cd client && pnpm install && cd ../server && pnpm install && cd ..",
+    "pretest": "pnpm run build:compiler && pnpm run compile && pnpm run lint",
+    "test": "vscode-test",
+    "vscode:prepublish": "pnpm run compile",
+    "watch": "scripts/build.mjs --watch"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20",
+    "@types/vscode": "^1.96.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.13.0",
+    "mocha": "^11.0.1",
+    "typescript-eslint": "^8.16.0",
+    "yargs": "^17.7.2"
+  }
+}

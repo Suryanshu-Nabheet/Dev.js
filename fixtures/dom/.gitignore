@@ -1,0 +1,25 @@
+# See http://help.github.com/ignore-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+
+# testing
+coverage
+
+# production
+build
+public/scheduler-unstable_mock.development.js
+public/scheduler-unstable_mock.production.min.js
+public/devjs.development.js
+public/devjs.production.min.js
+public/devjs-dom.development.js
+public/devjs-dom.production.min.js
+public/devjs-dom-server.browser.development.js
+public/devjs-dom-server.browser.production.min.js
+public/devjs-dom-test-utils.development.js
+public/devjs-dom-test-utils.production.min.js
+
+# misc
+.DS_Store
+.env
+npm-debug.log

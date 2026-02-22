@@ -1,0 +1,37 @@
+{
+  "name": "devjs-markup",
+  "version": "19.3.0",
+  "description": "Devjs package generating embedded markup such as e-mails with support for Server Components.",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-markup"
+  },
+  "keywords": [
+    "devjs"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js/issues"
+  },
+  "homepage": "https://devjs.dev/",
+  "peerDependencies": {
+    "devjs": "^19.0.0"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "devjs-markup.devjs-server.js",
+    "cjs/"
+  ],
+  "exports": {
+    ".": {
+      "devjs-server": "./devjs-markup.devjs-server.js",
+      "default": "./index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "devjs-devtools-experimental-edge",
+  "alias": ["devjs-devtools-experimental-edge"],
+  "files": ["index.html", "DevjsDevTools.zip"]
+}

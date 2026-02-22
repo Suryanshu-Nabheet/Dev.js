@@ -1,0 +1,26 @@
+{
+  "name": "devjs-is",
+  "version": "19.3.0",
+  "description": "Brand checking of Devjs Elements.",
+  "main": "index.js",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-is"
+  },
+  "keywords": [
+    "devjs"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js/issues"
+  },
+  "homepage": "https://devjs.dev/",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "cjs/"
+  ]
+}

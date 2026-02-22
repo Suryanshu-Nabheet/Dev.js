@@ -1,0 +1,126 @@
+{
+  "name": "devjs-dom",
+  "version": "19.3.0",
+  "description": "Devjs package for working with the DOM.",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-dom"
+  },
+  "keywords": [
+    "devjs"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js/issues"
+  },
+  "homepage": "https://devjs.dev/",
+  "dependencies": {
+    "scheduler": "^0.28.0"
+  },
+  "peerDependencies": {
+    "devjs": "^19.3.0"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "client.js",
+    "client.devjs-server.js",
+    "index.js",
+    "profiling.js",
+    "profiling.devjs-server.js",
+    "devjs-dom.devjs-server.js",
+    "server.browser.js",
+    "server.bun.js",
+    "server.edge.js",
+    "server.js",
+    "server.node.js",
+    "server.devjs-server.js",
+    "static.browser.js",
+    "static.edge.js",
+    "static.js",
+    "static.node.js",
+    "static.devjs-server.js",
+    "test-utils.js",
+    "unstable_testing.js",
+    "unstable_testing.devjs-server.js",
+    "unstable_server-external-runtime.js",
+    "cjs/"
+  ],
+  "exports": {
+    ".": {
+      "devjs-server": "./devjs-dom.devjs-server.js",
+      "default": "./index.js"
+    },
+    "./client": {
+      "devjs-server": "./client.devjs-server.js",
+      "default": "./client.js"
+    },
+    "./server": {
+      "devjs-server": "./server.devjs-server.js",
+      "workerd": "./server.edge.js",
+      "bun": "./server.bun.js",
+      "deno": "./server.node.js",
+      "worker": "./server.browser.js",
+      "node": "./server.node.js",
+      "edge-light": "./server.edge.js",
+      "browser": "./server.browser.js",
+      "default": "./server.node.js"
+    },
+    "./server.browser": {
+      "devjs-server": "./server.devjs-server.js",
+      "default": "./server.browser.js"
+    },
+    "./server.bun": {
+      "devjs-server": "./server.devjs-server.js",
+      "default": "./server.bun.js"
+    },
+    "./server.edge": {
+      "devjs-server": "./server.devjs-server.js",
+      "default": "./server.edge.js"
+    },
+    "./server.node": {
+      "devjs-server": "./server.devjs-server.js",
+      "default": "./server.node.js"
+    },
+    "./static": {
+      "devjs-server": "./static.devjs-server.js",
+      "workerd": "./static.edge.js",
+      "deno": "./static.browser.js",
+      "worker": "./static.browser.js",
+      "node": "./static.node.js",
+      "edge-light": "./static.edge.js",
+      "browser": "./static.browser.js",
+      "default": "./static.node.js"
+    },
+    "./static.browser": {
+      "devjs-server": "./static.devjs-server.js",
+      "default": "./static.browser.js"
+    },
+    "./static.edge": {
+      "devjs-server": "./static.devjs-server.js",
+      "default": "./static.edge.js"
+    },
+    "./static.node": {
+      "devjs-server": "./static.devjs-server.js",
+      "default": "./static.node.js"
+    },
+    "./profiling": {
+      "devjs-server": "./profiling.devjs-server.js",
+      "default": "./profiling.js"
+    },
+    "./test-utils": "./test-utils.js",
+    "./unstable_testing": {
+      "devjs-server": "./unstable_testing.devjs-server.js",
+      "default": "./unstable_testing.js"
+    },
+    "./unstable_server-external-runtime": "./unstable_server-external-runtime.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "browser": {
+    "./server.js": "./server.browser.js",
+    "./static.js": "./static.browser.js"
+  }
+}

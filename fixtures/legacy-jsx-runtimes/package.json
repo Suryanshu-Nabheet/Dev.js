@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "@babel/plugin-transform-modules-commonjs": "^7.10.4",
+    "@babel/preset-devjs": "^7.10.4",
+    "jest": "^29.4.1"
+  },
+  "jest": {
+    "setupFilesAfterEnv": [
+      "./setupTests.js"
+    ]
+  },
+  "scripts": {
+    "install-all": "cd devjs-14 && pnpm && cd ../devjs-15 && pnpm && cd ../devjs-16 && pnpm && cd ../devjs-17 && pnpm && cd ..",
+    "lint": "node lint-runtimes.js",
+    "pretest": "pnpm install-all && pnpm lint",
+    "test-jsxdev-dev": "BABEL_ENV=development NODE_ENV=development jest --env=jsdom",
+    "test-jsx-dev": "BABEL_ENV=production NODE_ENV=development jest --env=jsdom",
+    "test-jsx-prod": "BABEL_ENV=production NODE_ENV=production jest --env=jsdom",
+    "test": "pnpm test-jsxdev-dev && pnpm test-jsx-dev && pnpm test-jsx-prod"
+  }
+}

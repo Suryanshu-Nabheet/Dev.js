@@ -1,0 +1,35 @@
+/**
+ * Copyright (c) Suryanshu Nabheet.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow
+ */
+
+import type {AsyncDispatcher} from 'devjs-reconciler/src/DevjsInternalTypes';
+import type {ComponentStackNode} from './DevjsFizzComponentStack';
+
+import {currentTaskInDEV} from './DevjsFizzCurrentTask';
+
+function getCacheForType<T>(resourceType: () => T): T {
+  throw new Error('Not implemented.');
+}
+
+function cacheSignal(): null | AbortSignal {
+  throw new Error('Not implemented.');
+}
+
+export const DefaultAsyncDispatcher: AsyncDispatcher = ({
+  getCacheForType,
+  cacheSignal,
+}: any);
+
+if (__DEV__) {
+  DefaultAsyncDispatcher.getOwner = (): ComponentStackNode | null => {
+    if (currentTaskInDEV === null) {
+      return null;
+    }
+    return currentTaskInDEV.componentStack;
+  };
+}

@@ -1,0 +1,21 @@
+/**
+ * Copyright (c) Suryanshu Nabheet.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow
+ */
+
+import type {ModuleLoading} from './DevjsFlightClientConfigBundlerParcel';
+import {preinitModuleForSSR} from 'devjs-client/src/DevjsFlightClientConfig';
+
+export function prepareDestinationWithChunks(
+  moduleLoading: ModuleLoading,
+  bundles: Array<string>,
+  nonce: ?string,
+) {
+  for (let i = 0; i < bundles.length; i++) {
+    preinitModuleForSSR(parcelRequire.meta.publicUrl + bundles[i], nonce);
+  }
+}

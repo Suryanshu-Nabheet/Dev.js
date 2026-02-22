@@ -1,0 +1,5 @@
+import type { PluginOptions } from 
+'babel-plugin-devjs-compiler/dist';
+({
+  //compilationMode: "all"
+} satisfies PluginOptions);

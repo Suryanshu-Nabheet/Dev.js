@@ -1,0 +1,13 @@
+{
+  "packages": ["packages/devjs", "packages/devjs-dom", "packages/devjs-server-dom-webpack", "packages/scheduler"],
+  "buildCommand": "download-build-in-codesandbox-ci",
+  "node": "20",
+  "publishDirectory": {
+    "devjs": "build/oss-experimental/devjs",
+    "devjs-dom": "build/oss-experimental/devjs-dom",
+    "devjs-server-dom-webpack": "build/oss-experimental/devjs-server-dom-webpack",
+    "scheduler": "build/oss-experimental/scheduler"
+  },
+  "sandboxes": ["new"],
+  "silent": true
+}

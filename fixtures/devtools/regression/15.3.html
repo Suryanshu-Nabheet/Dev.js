@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Devjs 15.3</title>
+    <link rel="stylesheet" href="styles.css" />
+
+    <script type="text/javascript">
+      // Enable DevTools to inspect Devjs inside of an <iframe>
+      // This must run before Devjs is loaded
+      __devjs_DEVTOOLS_GLOBAL_HOOK__ = parent.__devjs_DEVTOOLS_GLOBAL_HOOK__;
+    </script>
+
+    <script src="https://unpkg.com/devjs@15.3/dist/devjs.js"></script>
+    <script src="https://unpkg.com/devjs-dom@15.3/dist/devjs-dom.js"></script>
+    
+    <!-- Don't use this in production: -->
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="root">
+      If you are seeing this message, you are likely viewing this file using the <code>file</code> protocol which does not support cross origin requests.
+      <br/><br/>
+      Use the <code>server</code> script instead:
+      <br/><br/>
+      <code>node ./fixtures/devtools/regression/server.js</code><br/>
+      <code>open <a href="http://localhost:3000/15.3.html">http://localhost:3000/15.3.html</a></code>
+    </div>
+
+    <script src="shared.js" type="text/babel"></script>
+
+    <!--
+      This is a great way to try Devjs but it's not suitable for production.
+      It slowly compiles JSX with Babel in the browser and uses a large development build of Devjs.
+      Learn more at https://devjsjs.org/docs/getting-started.html
+    -->
+  </body>
+</html>

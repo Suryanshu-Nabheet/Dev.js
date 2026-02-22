@@ -1,0 +1,21 @@
+<html>
+  <body>
+    <script src="https://unpkg.com/requirejs@2.3.2/require.js"></script>
+    <div id="container"></div>
+    <script>
+      requirejs.config({
+        paths: {
+          devjs: '../../../build/oss-experimental/devjs/umd/devjs.development',
+          'devjs-dom': '../../../build/oss-experimental/devjs-dom/umd/devjs-dom.development'
+        }
+      });
+
+      require(['devjs', 'devjs-dom'], function(Devjs, DevjsDOM) {
+        DevjsDOM.render(
+          Devjs.createElement('h1', null, 'Hello World!'),
+          document.getElementById('container')
+        );
+      });
+    </script>
+  </body>
+</html>

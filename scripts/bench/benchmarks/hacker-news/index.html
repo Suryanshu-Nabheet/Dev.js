@@ -1,0 +1,37 @@
+<html>
+  <head>
+    <title>devjs Hacker News Benchmark</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      performance.mark('Load devjs');
+      performance.mark('Load devjs+devjsDOM');
+    </script>
+    <script src="devjs.production.min.js"></script>
+    <script>
+      performance.measure('Load devjs', 'Load devjs');
+    </script>
+    <script>
+      performance.mark('Load devjsDOM');
+    </script>
+    <script src="devjs-dom.production.min.js"></script>
+    <script>
+      performance.measure('Load devjsDOM', 'Load devjsDOM');
+      performance.measure('Load devjs+devjsDOM', 'Load devjs+devjsDOM');
+    </script>
+    <script src="top-stories.js"></script>
+    <script src="benchmark.js"></script>
+    <script>
+      performance.mark('Initial Render');
+      render();
+      performance.measure('Initial Render', 'Initial Render');
+      requestAnimationFrame(() => {
+        performance.mark('Update Render');
+        render();
+        performance.measure('Update Render', 'Update Render');
+      });
+    </script>
+  </body>
+</html>

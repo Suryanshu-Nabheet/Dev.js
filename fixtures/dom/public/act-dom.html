@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>sanity test for DevjsTestUtils.act</title>
+  </head>
+  <body>
+    this page tests whether act runs properly in a browser.
+    <br />
+    your console should say "5"
+    <script src="scheduler-unstable_mock.development.js"></script>
+    <script src="devjs.development.js"></script>
+    <script type="text/javascript">
+      window.Devjs.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.Scheduler =
+        window.SchedulerMock;
+    </script>
+    <script src="devjs-dom.development.js"></script>
+    <script src="devjs-dom-test-utils.development.js"></script>
+    <script>
+      // from DevjsTestUtilsAct-test.js
+      function App() {
+        let [state, setState] = Devjs.useState(0);
+        async function ticker() {
+          await null;
+          setState(x => x + 1);
+        }
+        Devjs.useEffect(() => {
+          ticker();
+        }, [Math.min(state, 4)]);
+        return state;
+      }
+
+      async function testAsyncAct() {
+        const el = document.createElement("div");
+        await DevjsTestUtils.act(async () => {
+          DevjsDOM.render(Devjs.createElement(App), el);
+        });
+        // all 5 ticks present and accounted for
+        console.log(el.innerHTML);
+      }
+
+      testAsyncAct();
+    </script>
+  </body>
+</html>

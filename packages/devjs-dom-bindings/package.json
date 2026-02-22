@@ -1,0 +1,23 @@
+{
+  "name": "devjs-dom-bindings",
+  "description": "Devjs implementation details for devjs-dom.",
+  "version": "19.3.0",
+  "private": true,
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-dom-bindings"
+  },
+  "keywords": [
+    "devjs"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js/issues"
+  },
+  "homepage": "https://devjs.dev/",
+  "peerDependencies": {
+    "devjs": "^19.0.0"
+  }
+}

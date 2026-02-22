@@ -1,0 +1,52 @@
+{
+  "name": "devjs",
+  "description": "Devjs is a JavaScript library for building user interfaces.",
+  "keywords": [
+    "devjs"
+  ],
+  "version": "19.3.0",
+  "homepage": "https://devjs.dev/",
+  "bugs": "https://github.com/Suryanshu-Nabheet/dev.js/issues",
+  "license": "MIT",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "cjs/",
+    "compiler-runtime.js",
+    "jsx-runtime.js",
+    "jsx-runtime.devjs-server.js",
+    "jsx-dev-runtime.js",
+    "jsx-dev-runtime.devjs-server.js",
+    "devjs.devjs-server.js"
+  ],
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "devjs-server": "./devjs.devjs-server.js",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json",
+    "./jsx-runtime": {
+      "devjs-server": "./jsx-runtime.devjs-server.js",
+      "default": "./jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "devjs-server": "./jsx-dev-runtime.devjs-server.js",
+      "default": "./jsx-dev-runtime.js"
+    },
+    "./compiler-runtime": {
+      "devjs-server": "./compiler-runtime.js",
+      "default": "./compiler-runtime.js"
+    },
+    "./src/*": "./src/*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs"
+  },
+  "engines": {
+    "node": ">=0.10.0"
+  }
+}

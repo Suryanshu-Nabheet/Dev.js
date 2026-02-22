@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "devjs": "15",
+    "devjs-dom": "15"
+  }
+}

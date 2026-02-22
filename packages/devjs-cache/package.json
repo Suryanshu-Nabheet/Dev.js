@@ -1,0 +1,20 @@
+{
+  "private": true,
+  "name": "devjs-cache",
+  "description": "A basic cache for Devjs applications",
+  "version": "2.0.0-alpha.0",
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-cache"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "cjs/"
+  ],
+  "peerDependencies": {
+    "devjs": "^17.0.0"
+  }
+}

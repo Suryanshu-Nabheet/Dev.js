@@ -1,0 +1,18 @@
+{
+  "name": "expiration-2",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "devjs": "^16.1.1",
+    "devjs-dom": "^16.1.1",
+    "devjs-scripts": "1.0.17"
+  },
+  "scripts": {
+    "predev":
+      "cp ../../build/oss-experimental/devjs/umd/devjs.development.js public/ && cp ../../build/oss-experimental/devjs-dom/umd/devjs-dom.development.js public/",
+    "dev": "devjs-scripts start",
+    "build": "devjs-scripts build",
+    "test": "devjs-scripts test --env=jsdom",
+    "eject": "devjs-scripts eject"
+  }
+}

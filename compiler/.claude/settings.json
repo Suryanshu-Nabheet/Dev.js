@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm snap:*)",
+      "Bash(pnpm snap:build)",
+      "Bash(node scripts/enable-feature-flag.js:*)"
+    ],
+    "deny": [
+      "Skill(extract-errors)",
+      "Skill(feature-flags)",
+      "Skill(fix)",
+      "Skill(flags)",
+      "Skill(flow)",
+      "Skill(test)",
+      "Skill(verify)"
+    ]
+  }
+}

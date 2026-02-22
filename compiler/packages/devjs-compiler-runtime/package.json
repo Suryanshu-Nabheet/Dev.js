@@ -1,0 +1,25 @@
+{
+  "name": "devjs-compiler-runtime",
+  "version": "0.0.1",
+  "description": "Runtime for devjs Compiler",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "peerDependencies": {
+    "devjs": "^17.0.0 || ^18.0.0 || ^19.0.0 || ^0.0.0-experimental"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsup",
+    "test": "echo 'no tests'",
+    "watch": "pnpm build --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "compiler/packages/devjs-compiler-runtime"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "devjs-fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "devjs-scripts": "^1.0.11"
+  },
+  "dependencies": {
+    "@babel/standalone": "^7.0.0",
+    "art": "^0.10.3",
+    "classnames": "^2.2.5",
+    "codemirror": "^5.40.0",
+    "core-js": "^2.4.1",
+    "jest-diff": "^29.4.1",
+    "prop-types": "^15.6.0",
+    "query-string": "^4.2.3",
+    "devjs": "^19.0.0",
+    "devjs-dom": "^19.0.0",
+    "semver": "^5.5.0"
+  },
+  "scripts": {
+    "dev": "devjs-scripts start",
+    "predev": "cp -a ../../build/oss-experimental/. node_modules",
+    "build": "devjs-scripts build && cp build/index.html build/200.html",
+    "test": "devjs-scripts test --env=jsdom",
+    "eject": "devjs-scripts eject"
+  }
+}

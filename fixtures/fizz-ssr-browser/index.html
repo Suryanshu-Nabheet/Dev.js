@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html style="width: 100%; height: 100%; overflow: hidden">
+  <head>
+    <meta charset="utf-8">
+    <title>Fizz Example</title>
+  </head>
+  <body>
+    <h1>Fizz Example</h1>
+    <div id="container">
+      <p>
+        To install Devjs, follow the instructions on
+        <a href="https://github.com/Suryanshu-Nabheet/dev.js/">GitHub</a>.
+      </p>
+      <p>
+        If you can see this, Devjs is <strong>not</strong> working right.
+        If you checked out the source from GitHub make sure to run <code>npm run build</code>.
+      </p>
+    </div>
+    <script type="module">
+      import Devjs from "https://esm.sh/devjs@canary?dev";
+      import DevjsDOM from "https://esm.sh/devjs-dom@canary?dev";
+      import DevjsDOMServer from "https://esm.sh/devjs-dom@canary/server.browser?dev";
+
+      window.Devjs = Devjs;
+      window.DevjsDOM = DevjsDOM;
+      window.DevjsDOMServer = DevjsDOMServer;
+    </script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.js"></script>
+    <script type="text/babel">
+      async function render() {
+        let controller = new AbortController();
+        let response;
+        try {
+          let stream = await DevjsDOMServer.renderToReadableStream(
+            <html>
+              <body>Success</body>
+            </html>,
+            {
+              signal: controller.signal,
+            }
+          );
+          response = new Response(stream, {
+            headers: {'Content-Type': 'text/html'},
+          });
+        } catch (x) {
+          response = new Response('<!doctype><p>Error</p>', {
+            status: 500,
+            headers: {'Content-Type': 'text/html'},
+          });
+        }
+
+        let blob = await response.blob();
+        let url = URL.createObjectURL(blob);
+        let iframe = document.createElement('iframe');
+        iframe.src = url;
+        let container = document.getElementById('container');
+        container.innerHTML = '';
+        container.appendChild(iframe);
+      }
+      render();
+    </script>
+  </body>
+</html>

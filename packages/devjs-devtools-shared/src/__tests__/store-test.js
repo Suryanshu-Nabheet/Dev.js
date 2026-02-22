@@ -1,0 +1,3771 @@
+/**
+ * Copyright (c) Suryanshu Nabheet.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow
+ */
+
+import semver from 'semver';
+
+import {getVersionedRenderImplementation} from './utils';
+import {DevjsVersion} from '../../../../DevjsVersions';
+
+const DevjsVersionTestingAgainst = process.env.devjs_VERSION || DevjsVersion;
+
+describe('Store', () => {
+  let Devjs;
+  let DevjsDOM;
+  let DevjsDOMClient;
+  let agent;
+  let act;
+  let actAsync;
+  let bridge;
+  let createDisplayNameFilter;
+  let getRendererID;
+  let legacyRender;
+  let previousComponentFilters;
+  let store;
+  let withErrorsOrWarningsIgnored;
+
+  function readValue(promise) {
+    if (typeof Devjs.use === 'function') {
+      return Devjs.use(promise);
+    }
+
+    // Support for Devjs < 19.0
+    switch (promise.status) {
+      case 'fulfilled':
+        return promise.value;
+      case 'rejected':
+        throw promise.reason;
+      case 'pending':
+        throw promise;
+      default:
+        promise.status = 'pending';
+        promise.then(
+          value => {
+            promise.status = 'fulfilled';
+            promise.value = value;
+          },
+          reason => {
+            promise.status = 'rejected';
+            promise.reason = reason;
+          },
+        );
+        throw promise;
+    }
+  }
+
+  beforeAll(() => {
+    // JSDDOM doesn't implement getClientRects so we're just faking one for testing purposes
+    Element.prototype.getClientRects = function (this: Element) {
+      const textContent = this.textContent;
+      return [
+        new DOMRect(1, 2, textContent.length, textContent.split('\n').length),
+      ];
+    };
+  });
+
+  beforeEach(() => {
+    global.IS_devjs_ACT_ENVIRONMENT = true;
+
+    agent = global.agent;
+    bridge = global.bridge;
+    store = global.store;
+
+    previousComponentFilters = store.componentFilters;
+
+    Devjs = require('devjs');
+    DevjsDOM = require('devjs-dom');
+    DevjsDOMClient = require('devjs-dom/client');
+
+    const utils = require('./utils');
+    act = utils.act;
+    actAsync = utils.actAsync;
+    getRendererID = utils.getRendererID;
+    legacyRender = utils.legacyRender;
+    createDisplayNameFilter = utils.createDisplayNameFilter;
+    withErrorsOrWarningsIgnored = utils.withErrorsOrWarningsIgnored;
+  });
+
+  afterEach(() => {
+    store.componentFilters = previousComponentFilters;
+  });
+
+  const {render, unmount, createContainer} = getVersionedRenderImplementation();
+
+  // @devjsVersion >= 18.0
+  it('should not allow a root node to be collapsed', async () => {
+    const Component = () => <div>Hi</div>;
+
+    await act(() => render(<Component count={4} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Component>
+    `);
+
+    expect(store.roots).toHaveLength(1);
+
+    const rootID = store.roots[0];
+
+    expect(() => store.toggleIsCollapsed(rootID, true)).toThrow(
+      'Root nodes cannot be collapsed',
+    );
+  });
+
+  // @devjsVersion >= 18.0
+  it('should properly handle a root with no visible nodes', async () => {
+    const Root = ({children}) => children;
+
+    await act(() => render(<Root>{null}</Root>));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Root>
+    `);
+
+    await act(() => render(<div />));
+    expect(store).toMatchInlineSnapshot(`[root]`);
+  });
+
+  // This test is not the same cause as what's reported on GitHub,
+  // but the resulting behavior (owner mounting after descendant) is the same.
+  // Thec ase below is admittedly contrived and relies on side effects.
+  // I'mnot yet sure of how to reduce the GitHub reported production case to a test though.
+  // See https://github.com/Suryanshu-Nabheet/dev.js/issues/21445
+  // @devjsVersion >= 18.0
+  it('should handle when a component mounts before its owner', async () => {
+    const promise = new Promise(resolve => {});
+
+    let Dynamic = null;
+    const Owner = () => {
+      Dynamic = <Child />;
+      readValue(promise);
+    };
+    const Parent = () => {
+      return Dynamic;
+    };
+    const Child = () => null;
+
+    await act(() =>
+      render(
+        <>
+          <Devjs.Suspense fallback="Loading...">
+            <Owner />
+          </Devjs.Suspense>
+          <Parent />
+        </>,
+      ),
+    );
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Suspense>
+        ▾ <Parent>
+            <Child>
+      [suspense-root]  rects={null}
+        <Suspense name="Unknown" uniqueSuspenders={true} rects={null}>
+    `);
+  });
+
+  // @devjsVersion >= 18.0
+  it('should handle multibyte character strings', async () => {
+    const Component = () => null;
+    Component.displayName = '🟩💜🔵';
+
+    await act(() => render(<Component />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <🟩💜🔵>
+    `);
+  });
+
+  it('should handle reorder of filtered elements', async () => {
+    function IgnoreMePassthrough({children}) {
+      return children;
+    }
+    function PassThrough({children}) {
+      return children;
+    }
+
+    await actAsync(
+      async () =>
+        (store.componentFilters = [createDisplayNameFilter('^IgnoreMe', true)]),
+    );
+
+    await act(() => {
+      render(
+        <PassThrough key="e" name="e">
+          <IgnoreMePassthrough key="e1">
+            <PassThrough name="e-child-one">
+              <p>e1</p>
+            </PassThrough>
+          </IgnoreMePassthrough>
+          <IgnoreMePassthrough key="e2">
+            <PassThrough name="e-child-two">
+              <div>e2</div>
+            </PassThrough>
+          </IgnoreMePassthrough>
+        </PassThrough>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <PassThrough key="e">
+          ▾ <PassThrough>
+              <p>
+          ▾ <PassThrough>
+              <div>
+    `);
+
+    await act(() => {
+      render(
+        <PassThrough key="e" name="e">
+          <IgnoreMePassthrough key="e2">
+            <PassThrough name="e-child-two">
+              <div>e2</div>
+            </PassThrough>
+          </IgnoreMePassthrough>
+          <IgnoreMePassthrough key="e1">
+            <PassThrough name="e-child-one">
+              <p>e1</p>
+            </PassThrough>
+          </IgnoreMePassthrough>
+        </PassThrough>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <PassThrough key="e">
+          ▾ <PassThrough>
+              <div>
+          ▾ <PassThrough>
+              <p>
+    `);
+  });
+
+  describe('StrictMode compliance', () => {
+    it('should mark strict root elements as strict', async () => {
+      const App = () => <Component />;
+      const Component = () => null;
+
+      const container = document.createElement('div');
+      const root = DevjsDOMClient.createRoot(container, {
+        unstable_strictMode: true,
+      });
+      await act(() => {
+        root.render(<App />);
+      });
+
+      expect(store.getElementAtIndex(0).isStrictModeNonCompliant).toBe(false);
+      expect(store.getElementAtIndex(1).isStrictModeNonCompliant).toBe(false);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should mark non strict root elements as not strict', async () => {
+      const App = () => <Component />;
+      const Component = () => null;
+
+      const container = document.createElement('div');
+      const root = DevjsDOMClient.createRoot(container);
+      await act(() => {
+        root.render(<App />);
+      });
+
+      expect(store.getElementAtIndex(0).isStrictModeNonCompliant).toBe(true);
+      expect(store.getElementAtIndex(1).isStrictModeNonCompliant).toBe(true);
+    });
+
+    it('should mark StrictMode subtree elements as strict', async () => {
+      const App = () => (
+        <Devjs.StrictMode>
+          <Component />
+        </Devjs.StrictMode>
+      );
+      const Component = () => null;
+
+      const container = document.createElement('div');
+      const root = DevjsDOMClient.createRoot(container);
+      await act(() => {
+        root.render(<App />);
+      });
+
+      expect(store.getElementAtIndex(0).isStrictModeNonCompliant).toBe(true);
+      expect(store.getElementAtIndex(1).isStrictModeNonCompliant).toBe(false);
+    });
+  });
+
+  describe('collapseNodesByDefault:false', () => {
+    beforeEach(() => {
+      store.collapseNodesByDefault = false;
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support mount and update operations', async () => {
+      const Grandparent = ({count}) => (
+        <Devjs.Fragment>
+          <Parent count={count} />
+          <Parent count={count} />
+        </Devjs.Fragment>
+      );
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      await act(() => render(<Grandparent count={4} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+                <Child key="2">
+                <Child key="3">
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+                <Child key="2">
+                <Child key="3">
+      `);
+
+      await act(() => render(<Grandparent count={2} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+      `);
+
+      await act(() => unmount());
+      expect(store).toMatchInlineSnapshot(``);
+    });
+
+    // @devjsVersion >= 18.0
+    // @devjsVersion < 19
+    // @gate !disableLegacyMode
+    it('should support mount and update operations for multiple roots (legacy render)', async () => {
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      const containerA = document.createElement('div');
+      const containerB = document.createElement('div');
+
+      await act(() => {
+        legacyRender(<Parent key="A" count={3} />, containerA);
+        legacyRender(<Parent key="B" count={2} />, containerB);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Parent key="A">
+              <Child key="0">
+              <Child key="1">
+              <Child key="2">
+        [root]
+          ▾ <Parent key="B">
+              <Child key="0">
+              <Child key="1">
+      `);
+
+      await act(() => {
+        legacyRender(<Parent key="A" count={4} />, containerA);
+        legacyRender(<Parent key="B" count={1} />, containerB);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Parent key="A">
+              <Child key="0">
+              <Child key="1">
+              <Child key="2">
+              <Child key="3">
+        [root]
+          ▾ <Parent key="B">
+              <Child key="0">
+      `);
+
+      await act(() => DevjsDOM.unmountComponentAtNode(containerB));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Parent key="A">
+              <Child key="0">
+              <Child key="1">
+              <Child key="2">
+              <Child key="3">
+      `);
+
+      await act(() => DevjsDOM.unmountComponentAtNode(containerA));
+      expect(store).toMatchInlineSnapshot(``);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support mount and update operations for multiple roots (createRoot)', async () => {
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      const containerA = document.createElement('div');
+      const containerB = document.createElement('div');
+
+      const rootA = DevjsDOMClient.createRoot(containerA);
+      const rootB = DevjsDOMClient.createRoot(containerB);
+
+      await act(() => {
+        rootA.render(<Parent key="A" count={3} />);
+        rootB.render(<Parent key="B" count={2} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Parent key="A">
+              <Child key="0">
+              <Child key="1">
+              <Child key="2">
+        [root]
+          ▾ <Parent key="B">
+              <Child key="0">
+              <Child key="1">
+      `);
+
+      await act(() => {
+        rootA.render(<Parent key="A" count={4} />);
+        rootB.render(<Parent key="B" count={1} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Parent key="A">
+              <Child key="0">
+              <Child key="1">
+              <Child key="2">
+              <Child key="3">
+        [root]
+          ▾ <Parent key="B">
+              <Child key="0">
+      `);
+
+      await act(() => rootB.unmount());
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Parent key="A">
+              <Child key="0">
+              <Child key="1">
+              <Child key="2">
+              <Child key="3">
+      `);
+
+      await act(() => rootA.unmount());
+      expect(store).toMatchInlineSnapshot(``);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should filter DOM nodes from the store tree', async () => {
+      const Grandparent = () => (
+        <div>
+          <div>
+            <Parent />
+          </div>
+          <Parent />
+        </div>
+      );
+      const Parent = () => (
+        <div>
+          <Child />
+        </div>
+      );
+      const Child = () => <div>Hi!</div>;
+
+      await act(() => render(<Grandparent count={4} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child>
+            ▾ <Parent>
+                <Child>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should display Suspense nodes properly in various states', async () => {
+      const Loading = () => <div>Loading...</div>;
+      const never = new Promise(() => {});
+      const SuspendingComponent = () => {
+        readValue(never);
+      };
+      const Component = () => {
+        return <div>Hello</div>;
+      };
+      const Wrapper = ({shouldSuspense}) => (
+        <Devjs.Fragment>
+          <Component key="Outside" />
+          <Devjs.Suspense fallback={<Loading />}>
+            {shouldSuspense ? (
+              <SuspendingComponent />
+            ) : (
+              <Component key="Inside" />
+            )}
+          </Devjs.Suspense>
+        </Devjs.Fragment>
+      );
+
+      await act(() => render(<Wrapper shouldSuspense={true} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense>
+                <Loading>
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={null}>
+      `);
+
+      await act(() => {
+        render(<Wrapper shouldSuspense={false} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense>
+                <Component key="Inside">
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={[{x:1,y:2,width:5,height:1}]}>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support nested Suspense nodes', async () => {
+      const Component = () => null;
+      const Loading = () => <div>Loading...</div>;
+      const never = new Promise(() => {});
+      const Never = () => {
+        readValue(never);
+      };
+
+      const Wrapper = ({
+        suspendFirst = false,
+        suspendSecond = false,
+        suspendParent = false,
+      }) => (
+        <Devjs.Fragment>
+          <Component key="Outside" />
+          <Devjs.Suspense
+            name="parent"
+            fallback={<Loading key="Parent Fallback" />}>
+            <Component key="Unrelated at Start" />
+            <Devjs.Suspense
+              name="one"
+              fallback={<Loading key="Suspense 1 Fallback" />}>
+              {suspendFirst ? (
+                <Never />
+              ) : (
+                <Component key="Suspense 1 Content" />
+              )}
+            </Devjs.Suspense>
+            <Devjs.Suspense
+              name="two"
+              fallback={<Loading key="Suspense 2 Fallback" />}>
+              {suspendSecond ? (
+                <Never />
+              ) : (
+                <Component key="Suspense 2 Content" />
+              )}
+            </Devjs.Suspense>
+            <Devjs.Suspense
+              name="three"
+              fallback={<Loading key="Suspense 3 Fallback" />}>
+              <Never />
+            </Devjs.Suspense>
+            {suspendParent && <Never />}
+            <Component key="Unrelated at End" />
+          </Devjs.Suspense>
+        </Devjs.Fragment>
+      );
+
+      await actAsync(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={false}
+            suspendSecond={false}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Content">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={false} rects={null}>
+            <Suspense name="two" uniqueSuspenders={false} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={true}
+            suspendSecond={false}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Loading key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={false} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={false}
+            suspendSecond={true}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Content">
+              ▾ <Suspense name="two">
+                  <Loading key="Suspense 2 Fallback">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={true}
+            suspendSecond={false}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Loading key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={true}
+            suspendFirst={true}
+            suspendSecond={false}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Loading key="Parent Fallback">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={true}
+            suspendSecond={true}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Loading key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Loading key="Suspense 2 Fallback">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={false}
+            suspendSecond={false}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Content">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+
+      const rendererID = getRendererID();
+      await act(() =>
+        agent.overrideSuspense({
+          id: store.getElementIDAtIndex(4),
+          rendererID,
+          forceFallback: true,
+        }),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Loading key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        agent.overrideSuspense({
+          id: store.getElementIDAtIndex(2),
+          rendererID,
+          forceFallback: true,
+        }),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Loading key="Parent Fallback">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={true}
+            suspendSecond={true}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Loading key="Parent Fallback">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await actAsync(() =>
+        agent.overrideSuspense({
+          id: store.getElementIDAtIndex(2),
+          rendererID,
+          forceFallback: false,
+        }),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Loading key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Loading key="Suspense 2 Fallback">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        agent.overrideSuspense({
+          id: store.getElementIDAtIndex(4),
+          rendererID,
+          forceFallback: false,
+        }),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Loading key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Loading key="Suspense 2 Fallback">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+      await act(() =>
+        render(
+          <Wrapper
+            suspendParent={false}
+            suspendFirst={false}
+            suspendSecond={false}
+          />,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Content">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Loading key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:10,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={true} rects={null}>
+            <Suspense name="two" uniqueSuspenders={true} rects={null}>
+            <Suspense name="three" uniqueSuspenders={true} rects={null}>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('can override multiple Suspense simultaneously', async () => {
+      const Component = () => {
+        return <div>Hello</div>;
+      };
+      const App = () => (
+        <Devjs.Fragment>
+          <Component key="Outside" />
+          <Devjs.Suspense
+            name="parent"
+            fallback={<Component key="Parent Fallback" />}>
+            <Component key="Unrelated at Start" />
+            <Devjs.Suspense
+              name="one"
+              fallback={<Component key="Suspense 1 Fallback" />}>
+              <Component key="Suspense 1 Content" />
+            </Devjs.Suspense>
+            <Devjs.Suspense
+              name="two"
+              fallback={<Component key="Suspense 2 Fallback" />}>
+              <Component key="Suspense 2 Content" />
+            </Devjs.Suspense>
+            <Devjs.Suspense
+              name="three"
+              fallback={<Component key="Suspense 3 Fallback" />}>
+              <Component key="Suspense 3 Content" />
+            </Devjs.Suspense>
+            <Component key="Unrelated at End" />
+          </Devjs.Suspense>
+        </Devjs.Fragment>
+      );
+
+      await actAsync(() => render(<App />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Content">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Component key="Suspense 3 Content">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+            <Suspense name="two" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+            <Suspense name="three" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+      `);
+
+      await actAsync(() => {
+        agent.overrideSuspenseMilestone({
+          suspendedSet: [
+            store.getElementIDAtIndex(4),
+            store.getElementIDAtIndex(8),
+          ],
+        });
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Fallback">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Component key="Suspense 3 Fallback">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+            <Suspense name="two" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+            <Suspense name="three" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+      `);
+
+      await actAsync(() => {
+        agent.overrideSuspenseMilestone({
+          suspendedSet: [],
+        });
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Component key="Outside">
+            ▾ <Suspense name="parent">
+                <Component key="Unrelated at Start">
+              ▾ <Suspense name="one">
+                  <Component key="Suspense 1 Content">
+              ▾ <Suspense name="two">
+                  <Component key="Suspense 2 Content">
+              ▾ <Suspense name="three">
+                  <Component key="Suspense 3 Content">
+                <Component key="Unrelated at End">
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}
+          <Suspense name="parent" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}>
+            <Suspense name="one" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+            <Suspense name="two" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+            <Suspense name="three" uniqueSuspenders={false} rects={[{x:1,y:2,width:5,height:1}]}>
+      `);
+    });
+
+    it('should display a partially rendered SuspenseList', async () => {
+      const Loading = () => <div>Loading...</div>;
+      const never = new Promise(() => {});
+      const SuspendingComponent = () => {
+        readValue(never);
+      };
+      const Component = () => {
+        return <div>Hello</div>;
+      };
+      const Wrapper = ({shouldSuspense}) => (
+        <Devjs.Fragment>
+          <Devjs.unstable_SuspenseList revealOrder="forwards" tail="collapsed">
+            <Component key="A" />
+            <Devjs.Suspense fallback={<Loading />}>
+              {shouldSuspense ? <SuspendingComponent /> : <Component key="B" />}
+            </Devjs.Suspense>
+            <Component key="C" />
+          </Devjs.unstable_SuspenseList>
+        </Devjs.Fragment>
+      );
+
+      const container = document.createElement('div');
+      const root = DevjsDOMClient.createRoot(container);
+      await act(() => {
+        root.render(<Wrapper shouldSuspense={true} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+            ▾ <SuspenseList>
+                <Component key="A">
+              ▾ <Suspense>
+                  <Loading>
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={null}>
+      `);
+
+      await act(() => {
+        root.render(<Wrapper shouldSuspense={false} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+            ▾ <SuspenseList>
+                <Component key="A">
+              ▾ <Suspense>
+                  <Component key="B">
+                <Component key="C">
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={[{x:1,y:2,width:5,height:1}]}>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support collapsing parts of the tree', async () => {
+      const Grandparent = ({count}) => (
+        <Devjs.Fragment>
+          <Parent count={count} />
+          <Parent count={count} />
+        </Devjs.Fragment>
+      );
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      await act(() => render(<Grandparent count={2} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+      `);
+
+      const grandparentID = store.getElementIDAtIndex(0);
+      const parentOneID = store.getElementIDAtIndex(1);
+      const parentTwoID = store.getElementIDAtIndex(4);
+
+      await act(() => store.toggleIsCollapsed(parentOneID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▸ <Parent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+      `);
+
+      await act(() => store.toggleIsCollapsed(parentTwoID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▸ <Parent>
+            ▸ <Parent>
+      `);
+
+      await act(() => store.toggleIsCollapsed(parentOneID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+            ▸ <Parent>
+      `);
+
+      await act(() => store.toggleIsCollapsed(grandparentID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Grandparent>
+      `);
+
+      await act(() => store.toggleIsCollapsed(grandparentID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+            ▸ <Parent>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support reordering of children', async () => {
+      const Root = ({children}) => children;
+      const Component = () => null;
+
+      const Foo = () => [<Component key="0" />];
+      const Bar = () => [<Component key="0" />, <Component key="1" />];
+      const foo = <Foo key="foo" />;
+      const bar = <Bar key="bar" />;
+
+      await act(() => render(<Root>{[foo, bar]}</Root>));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Root>
+            ▾ <Foo key="foo">
+                <Component key="0">
+            ▾ <Bar key="bar">
+                <Component key="0">
+                <Component key="1">
+      `);
+
+      await act(() => render(<Root>{[bar, foo]}</Root>));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Root>
+            ▾ <Bar key="bar">
+                <Component key="0">
+                <Component key="1">
+            ▾ <Foo key="foo">
+                <Component key="0">
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), true),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Root>
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), false),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Root>
+            ▾ <Bar key="bar">
+                <Component key="0">
+                <Component key="1">
+            ▾ <Foo key="foo">
+                <Component key="0">
+      `);
+    });
+  });
+
+  describe('collapseNodesByDefault:true', () => {
+    beforeEach(() => {
+      store.collapseNodesByDefault = true;
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support mount and update operations', async () => {
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      await act(() =>
+        render(
+          <Devjs.Fragment>
+            <Parent count={1} />
+            <Parent count={3} />
+          </Devjs.Fragment>,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent>
+          ▸ <Parent>
+      `);
+
+      await act(() =>
+        render(
+          <Devjs.Fragment>
+            <Parent count={2} />
+            <Parent count={1} />
+          </Devjs.Fragment>,
+        ),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent>
+          ▸ <Parent>
+      `);
+
+      await act(() => unmount());
+      expect(store).toMatchInlineSnapshot(``);
+    });
+
+    // @devjsVersion >= 18.0
+    // @devjsVersion < 19
+    // @gate !disableLegacyMode
+    it('should support mount and update operations for multiple roots (legacy render)', async () => {
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      const containerA = document.createElement('div');
+      const containerB = document.createElement('div');
+
+      await act(() => {
+        legacyRender(<Parent key="A" count={3} />, containerA);
+        legacyRender(<Parent key="B" count={2} />, containerB);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent key="A">
+        [root]
+          ▸ <Parent key="B">
+      `);
+
+      await act(() => {
+        legacyRender(<Parent key="A" count={4} />, containerA);
+        legacyRender(<Parent key="B" count={1} />, containerB);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent key="A">
+        [root]
+          ▸ <Parent key="B">
+      `);
+
+      await act(() => DevjsDOM.unmountComponentAtNode(containerB));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent key="A">
+      `);
+
+      await act(() => DevjsDOM.unmountComponentAtNode(containerA));
+      expect(store).toMatchInlineSnapshot(``);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support mount and update operations for multiple roots (createRoot)', async () => {
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      const containerA = document.createElement('div');
+      const containerB = document.createElement('div');
+
+      const rootA = DevjsDOMClient.createRoot(containerA);
+      const rootB = DevjsDOMClient.createRoot(containerB);
+
+      await act(() => {
+        rootA.render(<Parent key="A" count={3} />);
+        rootB.render(<Parent key="B" count={2} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent key="A">
+        [root]
+          ▸ <Parent key="B">
+      `);
+
+      await act(() => {
+        rootA.render(<Parent key="A" count={4} />);
+        rootB.render(<Parent key="B" count={1} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent key="A">
+        [root]
+          ▸ <Parent key="B">
+      `);
+
+      await act(() => rootB.unmount());
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Parent key="A">
+      `);
+
+      await act(() => rootA.unmount());
+      expect(store).toMatchInlineSnapshot(``);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should filter DOM nodes from the store tree', async () => {
+      const Grandparent = () => (
+        <div>
+          <div>
+            <Parent />
+          </div>
+          <Parent />
+        </div>
+      );
+      const Parent = () => (
+        <div>
+          <Child />
+        </div>
+      );
+      const Child = () => <div>Hi!</div>;
+
+      await act(() => render(<Grandparent count={4} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Grandparent>
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), false),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▸ <Parent>
+            ▸ <Parent>
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(1), false),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child>
+            ▸ <Parent>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should display Suspense nodes properly in various states', async () => {
+      const Loading = () => <div>Loading...</div>;
+      const never = new Promise(() => {});
+      const SuspendingComponent = () => {
+        readValue(never);
+      };
+      const Component = () => {
+        return <div>Hello</div>;
+      };
+      const Wrapper = ({shouldSuspense}) => (
+        <Devjs.Fragment>
+          <Component key="Outside" />
+          <Devjs.Suspense fallback={<Loading />}>
+            {shouldSuspense ? (
+              <SuspendingComponent />
+            ) : (
+              <Component key="Inside" />
+            )}
+          </Devjs.Suspense>
+        </Devjs.Fragment>
+      );
+
+      await act(() => render(<Wrapper shouldSuspense={true} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Wrapper>
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={null}>
+      `);
+
+      // This test isn't meaningful unless we expand the suspended tree
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), false),
+      );
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(2), false),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense>
+                <Loading>
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:10,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={null}>
+      `);
+
+      await act(() => {
+        render(<Wrapper shouldSuspense={false} />);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+              <Component key="Outside">
+            ▾ <Suspense>
+                <Component key="Inside">
+        [suspense-root]  rects={[{x:1,y:2,width:5,height:1}, {x:1,y:2,width:5,height:1}]}
+          <Suspense name="Wrapper" uniqueSuspenders={true} rects={[{x:1,y:2,width:5,height:1}]}>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support expanding parts of the tree', async () => {
+      const Grandparent = ({count}) => (
+        <Devjs.Fragment>
+          <Parent count={count} />
+          <Parent count={count} />
+        </Devjs.Fragment>
+      );
+      const Parent = ({count}) =>
+        new Array(count).fill(true).map((_, index) => <Child key={index} />);
+      const Child = () => <div>Hi!</div>;
+
+      await act(() => render(<Grandparent count={2} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Grandparent>
+      `);
+
+      const grandparentID = store.getElementIDAtIndex(0);
+
+      await act(() => store.toggleIsCollapsed(grandparentID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▸ <Parent>
+            ▸ <Parent>
+      `);
+
+      const parentOneID = store.getElementIDAtIndex(1);
+      const parentTwoID = store.getElementIDAtIndex(2);
+
+      await act(() => store.toggleIsCollapsed(parentOneID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+            ▸ <Parent>
+      `);
+
+      await act(() => store.toggleIsCollapsed(parentTwoID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+      `);
+
+      await act(() => store.toggleIsCollapsed(parentOneID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▸ <Parent>
+            ▾ <Parent>
+                <Child key="0">
+                <Child key="1">
+      `);
+
+      await act(() => store.toggleIsCollapsed(parentTwoID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Grandparent>
+            ▸ <Parent>
+            ▸ <Parent>
+      `);
+
+      await act(() => store.toggleIsCollapsed(grandparentID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Grandparent>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support expanding deep parts of the tree', async () => {
+      const Wrapper = ({forwardedRef}) => (
+        <Nested depth={3} forwardedRef={forwardedRef} />
+      );
+      const Nested = ({depth, forwardedRef}) =>
+        depth > 0 ? (
+          <Nested depth={depth - 1} forwardedRef={forwardedRef} />
+        ) : (
+          <div ref={forwardedRef} />
+        );
+
+      const ref = Devjs.createRef();
+
+      await act(() => render(<Wrapper forwardedRef={ref} />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Wrapper>
+      `);
+
+      const deepestedNodeID = agent.getIDForHostInstance(ref.current).id;
+
+      await act(() => store.toggleIsCollapsed(deepestedNodeID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+            ▾ <Nested>
+              ▾ <Nested>
+                ▾ <Nested>
+                    <Nested>
+      `);
+
+      const rootID = store.getElementIDAtIndex(0);
+
+      await act(() => store.toggleIsCollapsed(rootID, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Wrapper>
+      `);
+
+      await act(() => store.toggleIsCollapsed(rootID, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+            ▾ <Nested>
+              ▾ <Nested>
+                ▾ <Nested>
+                    <Nested>
+      `);
+
+      const id = store.getElementIDAtIndex(1);
+
+      await act(() => store.toggleIsCollapsed(id, true));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+            ▸ <Nested>
+      `);
+
+      await act(() => store.toggleIsCollapsed(id, false));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Wrapper>
+            ▾ <Nested>
+              ▾ <Nested>
+                ▾ <Nested>
+                    <Nested>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support reordering of children', async () => {
+      const Root = ({children}) => children;
+      const Component = () => null;
+
+      const Foo = () => [<Component key="0" />];
+      const Bar = () => [<Component key="0" />, <Component key="1" />];
+      const foo = <Foo key="foo" />;
+      const bar = <Bar key="bar" />;
+
+      await act(() => render(<Root>{[foo, bar]}</Root>));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Root>
+      `);
+
+      await act(() => render(<Root>{[bar, foo]}</Root>));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Root>
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), false),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Root>
+            ▸ <Bar key="bar">
+            ▸ <Foo key="foo">
+      `);
+
+      await act(() => {
+        store.toggleIsCollapsed(store.getElementIDAtIndex(2), false);
+        store.toggleIsCollapsed(store.getElementIDAtIndex(1), false);
+      });
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Root>
+            ▾ <Bar key="bar">
+                <Component key="0">
+                <Component key="1">
+            ▾ <Foo key="foo">
+                <Component key="0">
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), true),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <Root>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should not add new nodes when suspense is toggled', async () => {
+      const SuspenseTree = () => {
+        return (
+          <Devjs.Suspense fallback={<Fallback>Loading outer</Fallback>}>
+            <Parent />
+          </Devjs.Suspense>
+        );
+      };
+
+      const Fallback = () => null;
+      const Parent = () => <Child />;
+      const Child = () => null;
+
+      await act(() => render(<SuspenseTree />));
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▸ <SuspenseTree>
+        [suspense-root]  rects={null}
+          <Suspense name="SuspenseTree" uniqueSuspenders={false} rects={null}>
+      `);
+
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(0), false),
+      );
+      await act(() =>
+        store.toggleIsCollapsed(store.getElementIDAtIndex(1), false),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <SuspenseTree>
+            ▾ <Suspense>
+              ▸ <Parent>
+        [suspense-root]  rects={null}
+          <Suspense name="SuspenseTree" uniqueSuspenders={false} rects={null}>
+      `);
+
+      const rendererID = getRendererID();
+      const suspenseID = store.getElementIDAtIndex(1);
+
+      await act(() =>
+        agent.overrideSuspense({
+          id: suspenseID,
+          rendererID,
+          forceFallback: true,
+        }),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <SuspenseTree>
+            ▾ <Suspense>
+                <Fallback>
+        [suspense-root]  rects={null}
+          <Suspense name="SuspenseTree" uniqueSuspenders={false} rects={null}>
+      `);
+
+      await act(() =>
+        agent.overrideSuspense({
+          id: suspenseID,
+          rendererID,
+          forceFallback: false,
+        }),
+      );
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <SuspenseTree>
+            ▾ <Suspense>
+              ▸ <Parent>
+        [suspense-root]  rects={null}
+          <Suspense name="SuspenseTree" uniqueSuspenders={false} rects={null}>
+      `);
+    });
+  });
+
+  describe('getIndexOfElementID', () => {
+    beforeEach(() => {
+      store.collapseNodesByDefault = false;
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support a single root with a single child', async () => {
+      const Grandparent = () => (
+        <Devjs.Fragment>
+          <Parent />
+          <Parent />
+        </Devjs.Fragment>
+      );
+      const Parent = () => <Child />;
+      const Child = () => null;
+
+      await act(() => render(<Grandparent />));
+
+      for (let i = 0; i < store.numElements; i++) {
+        expect(store.getIndexOfElementID(store.getElementIDAtIndex(i))).toBe(i);
+      }
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support multiple roots with one children each', async () => {
+      const Grandparent = () => <Parent />;
+      const Parent = () => <Child />;
+      const Child = () => null;
+
+      await act(() => {
+        render(<Grandparent />);
+        render(<Grandparent />);
+      });
+
+      for (let i = 0; i < store.numElements; i++) {
+        expect(store.getIndexOfElementID(store.getElementIDAtIndex(i))).toBe(i);
+      }
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support a single root with multiple top level children', async () => {
+      const Grandparent = () => <Parent />;
+      const Parent = () => <Child />;
+      const Child = () => null;
+
+      await act(() =>
+        render(
+          <Devjs.Fragment>
+            <Grandparent />
+            <Grandparent />
+          </Devjs.Fragment>,
+        ),
+      );
+
+      for (let i = 0; i < store.numElements; i++) {
+        expect(store.getIndexOfElementID(store.getElementIDAtIndex(i))).toBe(i);
+      }
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support multiple roots with multiple top level children', async () => {
+      const Grandparent = () => <Parent />;
+      const Parent = () => <Child />;
+      const Child = () => null;
+
+      await act(() => {
+        render(
+          <Devjs.Fragment>
+            <Grandparent />
+            <Grandparent />
+          </Devjs.Fragment>,
+        );
+
+        createContainer();
+
+        render(
+          <Devjs.Fragment>
+            <Grandparent />
+            <Grandparent />
+          </Devjs.Fragment>,
+        );
+      });
+
+      for (let i = 0; i < store.numElements; i++) {
+        expect(store.getIndexOfElementID(store.getElementIDAtIndex(i))).toBe(i);
+      }
+    });
+  });
+
+  // @devjsVersion >= 18.0
+  // @devjsVersion < 19
+  // @gate !disableLegacyMode
+  it('detects and updates profiling support based on the attached roots (legacy render)', async () => {
+    const Component = () => null;
+
+    const containerA = document.createElement('div');
+    const containerB = document.createElement('div');
+
+    expect(store.rootSupportsBasicProfiling).toBe(false);
+
+    await act(() => legacyRender(<Component />, containerA));
+    expect(store.rootSupportsBasicProfiling).toBe(true);
+
+    await act(() => legacyRender(<Component />, containerB));
+    await act(() => DevjsDOM.unmountComponentAtNode(containerA));
+    expect(store.rootSupportsBasicProfiling).toBe(true);
+
+    await act(() => DevjsDOM.unmountComponentAtNode(containerB));
+    expect(store.rootSupportsBasicProfiling).toBe(false);
+  });
+
+  // @devjsVersion >= 18
+  it('detects and updates profiling support based on the attached roots (createRoot)', async () => {
+    const Component = () => null;
+
+    const containerA = document.createElement('div');
+    const containerB = document.createElement('div');
+
+    const rootA = DevjsDOMClient.createRoot(containerA);
+    const rootB = DevjsDOMClient.createRoot(containerB);
+
+    expect(store.rootSupportsBasicProfiling).toBe(false);
+
+    await act(() => rootA.render(<Component />));
+    expect(store.rootSupportsBasicProfiling).toBe(true);
+
+    await act(() => rootB.render(<Component />));
+    await act(() => rootA.unmount());
+    expect(store.rootSupportsBasicProfiling).toBe(true);
+
+    await act(() => rootB.unmount());
+    expect(store.rootSupportsBasicProfiling).toBe(false);
+  });
+
+  // @devjsVersion >= 18.0
+  it('should properly serialize non-string key values', async () => {
+    const Child = () => null;
+
+    // Bypass Devjs element's automatic stringifying of keys intentionally.
+    // This is pretty hacky.
+    const fauxElement = Object.assign({}, <Child />, {key: 123});
+
+    await act(() => render([fauxElement]));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Child key="123">
+    `);
+  });
+
+  it('should show the right display names for special component types', async () => {
+    const MyComponent = (props, ref) => null;
+    const ForwardRefComponent = Devjs.forwardRef(MyComponent);
+    const MyComponent2 = (props, ref) => null;
+    const ForwardRefComponentWithAnonymousFunction = Devjs.forwardRef(() => (
+      <MyComponent2 />
+    ));
+    const MyComponent3 = (props, ref) => null;
+    const ForwardRefComponentWithCustomDisplayName =
+      Devjs.forwardRef(MyComponent3);
+    ForwardRefComponentWithCustomDisplayName.displayName = 'Custom';
+    const MyComponent4 = (props, ref) => null;
+    const MemoComponent = Devjs.memo(MyComponent4);
+    const MemoForwardRefComponent = Devjs.memo(ForwardRefComponent);
+
+    const FakeHigherOrderComponent = () => null;
+    FakeHigherOrderComponent.displayName = 'withFoo(withBar(Baz))';
+
+    const MemoizedFakeHigherOrderComponent = Devjs.memo(
+      FakeHigherOrderComponent,
+    );
+    const ForwardRefFakeHigherOrderComponent = Devjs.forwardRef(
+      FakeHigherOrderComponent,
+    );
+
+    const MemoizedFakeHigherOrderComponentWithDisplayNameOverride = Devjs.memo(
+      FakeHigherOrderComponent,
+    );
+    MemoizedFakeHigherOrderComponentWithDisplayNameOverride.displayName =
+      'memoRefOverride';
+    const ForwardRefFakeHigherOrderComponentWithDisplayNameOverride =
+      Devjs.forwardRef(FakeHigherOrderComponent);
+    ForwardRefFakeHigherOrderComponentWithDisplayNameOverride.displayName =
+      'forwardRefOverride';
+
+    const App = () => (
+      <Devjs.Fragment>
+        <MyComponent />
+        <ForwardRefComponent />
+        <ForwardRefComponentWithAnonymousFunction />
+        <ForwardRefComponentWithCustomDisplayName />
+        <MemoComponent />
+        <MemoForwardRefComponent />
+        <FakeHigherOrderComponent />
+        <MemoizedFakeHigherOrderComponent />
+        <ForwardRefFakeHigherOrderComponent />
+        <MemoizedFakeHigherOrderComponentWithDisplayNameOverride />
+        <ForwardRefFakeHigherOrderComponentWithDisplayNameOverride />
+      </Devjs.Fragment>
+    );
+
+    // Render once to start fetching the lazy component
+    await act(() => render(<App />));
+
+    await Promise.resolve();
+
+    // Render again after it resolves
+    await act(() => render(<App />));
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+            <MyComponent>
+            <MyComponent> [ForwardRef]
+          ▾ <Anonymous> [ForwardRef]
+              <MyComponent2>
+            <Custom>
+            <MyComponent4> [Memo]
+          ▾ <MyComponent> [Memo]
+              <MyComponent> [ForwardRef]
+            <Baz> [withFoo][withBar]
+            <Baz> [Memo][withFoo][withBar]
+            <Baz> [ForwardRef][withFoo][withBar]
+            <memoRefOverride>
+            <forwardRefOverride>
+    `);
+  });
+
+  describe('Lazy', () => {
+    async function fakeImport(result) {
+      return {default: result};
+    }
+
+    const LazyInnerComponent = () => null;
+
+    const App = ({renderChildren}) => {
+      if (renderChildren) {
+        return (
+          <Devjs.Suspense fallback="Loading...">
+            <LazyComponent />
+          </Devjs.Suspense>
+        );
+      } else {
+        return null;
+      }
+    };
+
+    let LazyComponent;
+    beforeEach(() => {
+      LazyComponent = Devjs.lazy(() => fakeImport(LazyInnerComponent));
+    });
+
+    // @devjsVersion >= 18.0
+    // @devjsVersion < 19
+    // @gate !disableLegacyMode
+    it('should support Lazy components (legacy render)', async () => {
+      const container = document.createElement('div');
+
+      // Render once to start fetching the lazy component
+      await act(() => legacyRender(<App renderChildren={true} />, container));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Suspense>
+      `);
+
+      await Promise.resolve();
+
+      // Render again after it resolves
+      await act(() => legacyRender(<App renderChildren={true} />, container));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+            ▾ <Suspense>
+                <LazyInnerComponent>
+      `);
+
+      // Render again to unmount it
+      await act(() => legacyRender(<App renderChildren={false} />, container));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+            <App>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('should support Lazy components in (createRoot)', async () => {
+      const container = document.createElement('div');
+      const root = DevjsDOMClient.createRoot(container);
+
+      // Render once to start fetching the lazy component
+      await act(() => root.render(<App renderChildren={true} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Suspense>
+        [suspense-root]  rects={null}
+          <Suspense name="App" uniqueSuspenders={true} rects={null}>
+      `);
+
+      await Promise.resolve();
+
+      // Render again after it resolves
+      await act(() => root.render(<App renderChildren={true} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+            ▾ <Suspense>
+                <LazyInnerComponent>
+        [suspense-root]  rects={null}
+          <Suspense name="App" uniqueSuspenders={true} rects={null}>
+      `);
+
+      // Render again to unmount it
+      await act(() => root.render(<App renderChildren={false} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+            <App>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    // @devjsVersion < 19
+    // @gate !disableLegacyMode
+    it('should support Lazy components that are unmounted before they finish loading (legacy render)', async () => {
+      const container = document.createElement('div');
+
+      // Render once to start fetching the lazy component
+      await act(() => legacyRender(<App renderChildren={true} />, container));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Suspense>
+      `);
+
+      // Render again to unmount it before it finishes loading
+      await act(() => legacyRender(<App renderChildren={false} />, container));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+            <App>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    // @devjsVersion < 19
+    it('should support Lazy components that are unmounted before they finish loading in (createRoot)', async () => {
+      const container = document.createElement('div');
+      const root = DevjsDOMClient.createRoot(container);
+
+      // Render once to start fetching the lazy component
+      await act(() => root.render(<App renderChildren={true} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+              <Suspense>
+        [suspense-root]  rects={null}
+          <Suspense name="App" rects={null}>
+      `);
+
+      // Render again to unmount it before it finishes loading
+      await act(() => root.render(<App renderChildren={false} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+            <App>
+      `);
+    });
+  });
+
+  describe('inline errors and warnings', () => {
+    // @devjsVersion >= 18.0
+    it('during render are counted', async () => {
+      function Example() {
+        console.error('test-only: render error');
+        console.warn('test-only: render warning');
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() => render(<Example />));
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 1, ⚠ 1
+        [root]
+            <Example> ✕⚠
+      `);
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() => render(<Example rerender={1} />));
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 2
+        [root]
+            <Example> ✕⚠
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('during layout get counted', async () => {
+      function Example() {
+        Devjs.useLayoutEffect(() => {
+          console.error('test-only: layout error');
+          console.warn('test-only: layout warning');
+        });
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() => render(<Example />));
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 1, ⚠ 1
+        [root]
+            <Example> ✕⚠
+      `);
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() => render(<Example rerender={1} />));
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 2
+        [root]
+            <Example> ✕⚠
+      `);
+    });
+
+    describe('during passive effects', () => {
+      function flushPendingBridgeOperations() {
+        jest.runOnlyPendingTimers();
+      }
+
+      // @devjsVersion >= 18.0
+      it('are counted (after no delay)', async () => {
+        function Example() {
+          Devjs.useEffect(() => {
+            console.error('test-only: passive error');
+            console.warn('test-only: passive warning');
+          });
+          return null;
+        }
+
+        withErrorsOrWarningsIgnored(['test-only:'], async () => {
+          await act(() => {
+            render(<Example />);
+          }, false);
+        });
+        flushPendingBridgeOperations();
+        expect(store).toMatchInlineSnapshot(`
+          ✕ 1, ⚠ 1
+          [root]
+              <Example> ✕⚠
+        `);
+
+        await act(() => unmount());
+        expect(store).toMatchInlineSnapshot(``);
+      });
+
+      // @devjsVersion >= 18.0
+      it('are flushed early when there is a new commit', async () => {
+        function Example() {
+          Devjs.useEffect(() => {
+            console.error('test-only: passive error');
+            console.warn('test-only: passive warning');
+          });
+          return null;
+        }
+
+        function Noop() {
+          return null;
+        }
+
+        withErrorsOrWarningsIgnored(['test-only:'], () => {
+          act(() => {
+            render(
+              <>
+                <Example />
+              </>,
+            );
+          }, false);
+          flushPendingBridgeOperations();
+          expect(store).toMatchInlineSnapshot(`
+            ✕ 1, ⚠ 1
+            [root]
+                <Example> ✕⚠
+          `);
+
+          // Before warnings and errors have flushed, flush another commit.
+          act(() => {
+            render(
+              <>
+                <Example />
+                <Noop />
+              </>,
+            );
+          }, false);
+          flushPendingBridgeOperations();
+          expect(store).toMatchInlineSnapshot(`
+            ✕ 2, ⚠ 2
+            [root]
+                <Example> ✕⚠
+                <Noop>
+          `);
+        });
+
+        await act(() => unmount());
+        expect(store).toMatchInlineSnapshot(``);
+      });
+    });
+
+    // In Devjs 19, JSX warnings were moved into the renderer - https://github.com/Suryanshu-Nabheet/dev.js/pull/29088
+    // The warning is moved to the Child instead of the Parent.
+    // @devjsVersion >= 19.0.1
+    it('from devjs get counted [Devjs >= 19.0.1]', async () => {
+      function Example() {
+        return [<Child />];
+      }
+      function Child() {
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(
+        ['Each child in a list should have a unique "key" prop'],
+        () => {
+          act(() => render(<Example />));
+        },
+      );
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 1, ⚠ 0
+        [root]
+          ▾ <Example>
+              <Child> ✕
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    // @devjsVersion < 19.0
+    it('from devjs get counted [Devjs 18.x]', async () => {
+      function Example() {
+        return [<Child />];
+      }
+      function Child() {
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(
+        ['Each child in a list should have a unique "key" prop'],
+        () => {
+          act(() => render(<Example />));
+        },
+      );
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 1, ⚠ 0
+        [root]
+          ▾ <Example> ✕
+              <Child>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('can be cleared for the whole app', async () => {
+      function Example() {
+        console.error('test-only: render error');
+        console.warn('test-only: render warning');
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() =>
+          render(
+            <Devjs.Fragment>
+              <Example />
+              <Example />
+            </Devjs.Fragment>,
+          ),
+        );
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 2
+        [root]
+            <Example> ✕⚠
+            <Example> ✕⚠
+      `);
+
+      const {
+        clearErrorsAndWarnings,
+      } = require('devjs-devtools-shared/src/backendAPI');
+      clearErrorsAndWarnings({bridge, store});
+
+      // flush events to the renderer
+      jest.runAllTimers();
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+            <Example>
+            <Example>
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('can be cleared for particular Fiber (only warnings)', async () => {
+      function Example() {
+        console.error('test-only: render error');
+        console.warn('test-only: render warning');
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() =>
+          render(
+            <Devjs.Fragment>
+              <Example />
+              <Example />
+            </Devjs.Fragment>,
+          ),
+        );
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 2
+        [root]
+            <Example> ✕⚠
+            <Example> ✕⚠
+      `);
+
+      const id = ((store.getElementIDAtIndex(1): any): number);
+      const rendererID = store.getRendererIDForElement(id);
+
+      const {
+        clearWarningsForElement,
+      } = require('devjs-devtools-shared/src/backendAPI');
+      clearWarningsForElement({bridge, id, rendererID});
+
+      // Flush events to the renderer.
+      jest.runAllTimers();
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 1
+        [root]
+            <Example> ✕⚠
+            <Example> ✕
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('can be cleared for a particular Fiber (only errors)', async () => {
+      function Example() {
+        console.error('test-only: render error');
+        console.warn('test-only: render warning');
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() =>
+          render(
+            <Devjs.Fragment>
+              <Example />
+              <Example />
+            </Devjs.Fragment>,
+          ),
+        );
+      });
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 2
+        [root]
+            <Example> ✕⚠
+            <Example> ✕⚠
+      `);
+
+      const id = ((store.getElementIDAtIndex(1): any): number);
+      const rendererID = store.getRendererIDForElement(id);
+
+      const {
+        clearErrorsForElement,
+      } = require('devjs-devtools-shared/src/backendAPI');
+      clearErrorsForElement({bridge, id, rendererID});
+
+      // Flush events to the renderer.
+      jest.runAllTimers();
+
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 1, ⚠ 2
+        [root]
+            <Example> ✕⚠
+            <Example> ⚠
+      `);
+    });
+
+    // @devjsVersion >= 18.0
+    it('are updated when fibers are removed from the tree', async () => {
+      function ComponentWithWarning() {
+        console.warn('test-only: render warning');
+        return null;
+      }
+      function ComponentWithError() {
+        console.error('test-only: render error');
+        return null;
+      }
+      function ComponentWithWarningAndError() {
+        console.error('test-only: render error');
+        console.warn('test-only: render warning');
+        return null;
+      }
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() =>
+          render(
+            <Devjs.Fragment>
+              <ComponentWithError />
+              <ComponentWithWarning />
+              <ComponentWithWarningAndError />
+            </Devjs.Fragment>,
+          ),
+        );
+      });
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 2, ⚠ 2
+        [root]
+            <ComponentWithError> ✕
+            <ComponentWithWarning> ⚠
+            <ComponentWithWarningAndError> ✕⚠
+      `);
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() =>
+          render(
+            <Devjs.Fragment>
+              <ComponentWithWarning />
+              <ComponentWithWarningAndError />
+            </Devjs.Fragment>,
+          ),
+        );
+      });
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 1, ⚠ 2
+        [root]
+            <ComponentWithWarning> ⚠
+            <ComponentWithWarningAndError> ✕⚠
+      `);
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() =>
+          render(
+            <Devjs.Fragment>
+              <ComponentWithWarning />
+            </Devjs.Fragment>,
+          ),
+        );
+      });
+      expect(store).toMatchInlineSnapshot(`
+        ✕ 0, ⚠ 2
+        [root]
+            <ComponentWithWarning> ⚠
+      `);
+
+      withErrorsOrWarningsIgnored(['test-only:'], async () => {
+        await act(() => render(<Devjs.Fragment />));
+      });
+      expect(store).toMatchInlineSnapshot(``);
+      expect(store.componentWithErrorCount).toBe(0);
+      expect(store.componentWithWarningCount).toBe(0);
+    });
+
+    // Regression test for https://github.com/Suryanshu-Nabheet/dev.js/issues/23202
+    // @devjsVersion >= 18.0
+    it('suspense boundary children should not double unmount and error', async () => {
+      async function fakeImport(result) {
+        return {default: result};
+      }
+
+      const ChildA = () => null;
+      const ChildB = () => null;
+
+      const LazyChildA = Devjs.lazy(() => fakeImport(ChildA));
+      const LazyChildB = Devjs.lazy(() => fakeImport(ChildB));
+
+      function App({renderA}) {
+        return (
+          <Devjs.Suspense>
+            {renderA ? <LazyChildA /> : <LazyChildB />}
+          </Devjs.Suspense>
+        );
+      }
+
+      await actAsync(() => render(<App renderA={true} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+            ▾ <Suspense>
+                <ChildA>
+        [suspense-root]  rects={null}
+          <Suspense name="App" uniqueSuspenders={true} rects={null}>
+      `);
+
+      await actAsync(() => render(<App renderA={false} />));
+
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <App>
+            ▾ <Suspense>
+                <ChildB>
+        [suspense-root]  rects={null}
+          <Suspense name="App" uniqueSuspenders={true} rects={null}>
+      `);
+    });
+  });
+
+  // @devjsVersion > 18.2
+  it('does not show server components without any children reified children', async () => {
+    // A Server Component that doesn't render into anything on the client doesn't show up.
+    const ServerPromise = Promise.resolve(null);
+    ServerPromise._debugInfo = [
+      {
+        name: 'ServerComponent',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const App = () => ServerPromise;
+
+    await actAsync(() => render(<App />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <App>
+    `);
+  });
+
+  // @devjsVersion > 18.2
+  it('does show a server component that renders into a filtered node', async () => {
+    const ServerPromise = Promise.resolve(<div />);
+    ServerPromise._debugInfo = [
+      {
+        name: 'ServerComponent',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const App = () => ServerPromise;
+
+    await actAsync(() => render(<App />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+            <ServerComponent> [Server]
+    `);
+  });
+
+  it('can render the same server component twice', async () => {
+    function ClientComponent() {
+      return <div />;
+    }
+    const ServerPromise = Promise.resolve(<ClientComponent />);
+    ServerPromise._debugInfo = [
+      {
+        name: 'ServerComponent',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const App = () => (
+      <>
+        {ServerPromise}
+        <ClientComponent />
+        {ServerPromise}
+      </>
+    );
+
+    await actAsync(() => render(<App />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+            <ClientComponent>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+    `);
+  });
+
+  // @devjsVersion > 18.2
+  it('collapses multiple parent server components into one', async () => {
+    function ClientComponent() {
+      return <div />;
+    }
+    const ServerPromise = Promise.resolve(<ClientComponent />);
+    ServerPromise._debugInfo = [
+      {
+        name: 'ServerComponent',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const ServerPromise2 = Promise.resolve(<ClientComponent />);
+    ServerPromise2._debugInfo = [
+      {
+        name: 'ServerComponent2',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const App = ({initial}) => (
+      <>
+        {ServerPromise}
+        {ServerPromise}
+        {ServerPromise2}
+        {initial ? null : ServerPromise2}
+      </>
+    );
+
+    await actAsync(() => render(<App initial={true} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+              <ClientComponent>
+          ▾ <ServerComponent2> [Server]
+              <ClientComponent>
+    `);
+
+    await actAsync(() => render(<App initial={false} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+              <ClientComponent>
+          ▾ <ServerComponent2> [Server]
+              <ClientComponent>
+              <ClientComponent>
+    `);
+  });
+
+  // @devjsVersion > 18.2
+  it('can reparent a child when the server components change', async () => {
+    function ClientComponent() {
+      return <div />;
+    }
+    const ServerPromise = Promise.resolve(<ClientComponent />);
+    ServerPromise._debugInfo = [
+      {
+        name: 'ServerAB',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const ServerPromise2 = Promise.resolve(<ClientComponent />);
+    ServerPromise2._debugInfo = [
+      {
+        name: 'ServerA',
+        env: 'Server',
+        owner: null,
+      },
+      {
+        name: 'ServerB',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const App = ({initial}) => (initial ? ServerPromise : ServerPromise2);
+
+    await actAsync(() => render(<App initial={true} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerAB> [Server]
+              <ClientComponent>
+    `);
+
+    await actAsync(() => render(<App initial={false} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerA> [Server]
+            ▾ <ServerB> [Server]
+                <ClientComponent>
+    `);
+  });
+
+  // @devjsVersion > 18.2
+  it('splits a server component parent when a different child appears between', async () => {
+    function ClientComponent() {
+      return <div />;
+    }
+    const ServerPromise = Promise.resolve(<ClientComponent />);
+    ServerPromise._debugInfo = [
+      {
+        name: 'ServerComponent',
+        env: 'Server',
+        owner: null,
+      },
+    ];
+    const App = ({initial}) =>
+      initial ? (
+        <>
+          {ServerPromise}
+          {null}
+          {ServerPromise}
+        </>
+      ) : (
+        <>
+          {ServerPromise}
+          <ClientComponent />
+          {ServerPromise}
+        </>
+      );
+
+    await actAsync(() => render(<App initial={true} />));
+    // Initially the Server Component only appears once because the children
+    // are consecutive.
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+              <ClientComponent>
+    `);
+
+    // Later the same instance gets split into two when it is no longer
+    // consecutive so we need two virtual instances to represent two parents.
+    await actAsync(() => render(<App initial={false} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+            <ClientComponent>
+          ▾ <ServerComponent> [Server]
+              <ClientComponent>
+    `);
+  });
+
+  // @devjsVersion > 18.2
+  it('can reorder keyed server components', async () => {
+    function ClientComponent({text}) {
+      return <div>{text}</div>;
+    }
+    function getServerComponent(key) {
+      const ServerPromise = Promise.resolve(
+        <ClientComponent key={key} text={key} />,
+      );
+      ServerPromise._debugInfo = [
+        {
+          name: 'ServerComponent',
+          env: 'Server',
+          owner: null,
+          key: key,
+        },
+      ];
+      return ServerPromise;
+    }
+    const set1 = ['A', 'B', 'C'].map(getServerComponent);
+    const set2 = ['B', 'A', 'D'].map(getServerComponent);
+
+    const App = ({initial}) => (initial ? set1 : set2);
+
+    await actAsync(() => render(<App initial={true} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent key="A"> [Server]
+              <ClientComponent key="A">
+          ▾ <ServerComponent key="B"> [Server]
+              <ClientComponent key="B">
+          ▾ <ServerComponent key="C"> [Server]
+              <ClientComponent key="C">
+      `);
+
+    await actAsync(() => render(<App initial={false} />));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <ServerComponent key="B"> [Server]
+              <ClientComponent key="B">
+          ▾ <ServerComponent key="A"> [Server]
+              <ClientComponent key="A">
+          ▾ <ServerComponent key="D"> [Server]
+              <ClientComponent key="D">
+      `);
+  });
+
+  // @devjsVersion >= 19.0
+  it('does not duplicate Server Component parents in keyed Fragments', async () => {
+    // TODO: Use an actual Flight renderer.
+    // See DevjsFlight-test for the produced JSX from Flight.
+    function ClientComponent() {
+      return null;
+    }
+    // This used to be a keyed Fragment on the Server.
+    const children = [<ClientComponent key="app" />];
+    children._debugInfo = [
+      {time: 12},
+      {
+        name: 'App',
+        env: 'Server',
+        key: null,
+        stack: '    in Object.<anonymous> (at **)',
+        props: {},
+      },
+      {time: 13},
+    ];
+
+    const container = document.createElement('div');
+    const root = DevjsDOMClient.createRoot(container);
+    await actAsync(() => {
+      root.render([children]);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App> [Server]
+            <ClientComponent key="app">
+    `);
+  });
+
+  // @devjsVersion >= 17.0
+  it('can reconcile Suspense in fallback positions', async () => {
+    let resolveFallback;
+    const fallbackPromise = new Promise(resolve => {
+      resolveFallback = resolve;
+    });
+    let resolveContent;
+    const contentPromise = new Promise(resolve => {
+      resolveContent = resolve;
+    });
+
+    function Component({children, promise}) {
+      if (promise) {
+        readValue(promise);
+      }
+      return <div>{children}</div>;
+    }
+
+    await actAsync(() =>
+      render(
+        <Devjs.Suspense
+          name="content"
+          fallback={
+            <Devjs.Suspense
+              name="fallback"
+              fallback={
+                <Component key="fallback-fallback">
+                  Loading fallback...
+                </Component>
+              }>
+              <Component key="fallback-content" promise={fallbackPromise}>
+                Loading...
+              </Component>
+            </Devjs.Suspense>
+          }>
+          <Component key="content" promise={contentPromise}>
+            done
+          </Component>
+        </Devjs.Suspense>,
+      ),
+    );
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="content">
+          ▾ <Suspense name="fallback">
+              <Component key="fallback-fallback">
+      [suspense-root]  rects={[{x:1,y:2,width:19,height:1}]}
+        <Suspense name="content" uniqueSuspenders={true} rects={null}>
+        <Suspense name="fallback" uniqueSuspenders={true} rects={null}>
+    `);
+
+    await actAsync(() => {
+      resolveFallback();
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="content">
+          ▾ <Suspense name="fallback">
+              <Component key="fallback-content">
+      [suspense-root]  rects={[{x:1,y:2,width:10,height:1}]}
+        <Suspense name="content" uniqueSuspenders={true} rects={null}>
+        <Suspense name="fallback" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}]}>
+    `);
+
+    await actAsync(() => {
+      resolveContent();
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="content">
+            <Component key="content">
+      [suspense-root]  rects={[{x:1,y:2,width:4,height:1}]}
+        <Suspense name="content" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+    `);
+  });
+
+  // @devjsVersion >= 17.0
+  it('can reconcile resuspended Suspense with Suspense in fallback positions', async () => {
+    let resolveHeadFallback;
+    let resolveHeadContent;
+    let resolveMainFallback;
+    let resolveMainContent;
+
+    function Component({children, promise}) {
+      if (promise) {
+        readValue(promise);
+      }
+      return <div>{children}</div>;
+    }
+
+    function WithSuspenseInFallback({fallbackPromise, contentPromise, name}) {
+      return (
+        <Devjs.Suspense
+          name={name}
+          fallback={
+            <Devjs.Suspense
+              name={`${name}-fallback`}
+              fallback={
+                <Component key={`${name}-fallback-fallback`}>
+                  Loading fallback...
+                </Component>
+              }>
+              <Component
+                key={`${name}-fallback-content`}
+                promise={fallbackPromise}>
+                Loading...
+              </Component>
+            </Devjs.Suspense>
+          }>
+          <Component key={`${name}-content`} promise={contentPromise}>
+            done
+          </Component>
+        </Devjs.Suspense>
+      );
+    }
+
+    function App({
+      headFallbackPromise,
+      headContentPromise,
+      mainContentPromise,
+      mainFallbackPromise,
+      tailContentPromise,
+      tailFallbackPromise,
+    }) {
+      return (
+        <>
+          <WithSuspenseInFallback
+            fallbackPromise={headFallbackPromise}
+            contentPromise={headContentPromise}
+            name="head"
+          />
+          <WithSuspenseInFallback
+            fallbackPromise={mainFallbackPromise}
+            contentPromise={mainContentPromise}
+            name="main"
+          />
+        </>
+      );
+    }
+
+    const initialHeadContentPromise = new Promise(resolve => {
+      resolveHeadContent = resolve;
+    });
+    const initialHeadFallbackPromise = new Promise(resolve => {
+      resolveHeadFallback = resolve;
+    });
+    const initialMainContentPromise = new Promise(resolve => {
+      resolveMainContent = resolve;
+    });
+    const initialMainFallbackPromise = new Promise(resolve => {
+      resolveMainFallback = resolve;
+    });
+    await actAsync(() =>
+      render(
+        <App
+          headFallbackPromise={initialHeadFallbackPromise}
+          headContentPromise={initialHeadContentPromise}
+          mainContentPromise={initialMainContentPromise}
+          mainFallbackPromise={initialMainFallbackPromise}
+        />,
+      ),
+    );
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="head">
+              ▾ <Suspense name="head-fallback">
+                  <Component key="head-fallback-fallback">
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="main">
+              ▾ <Suspense name="main-fallback">
+                  <Component key="main-fallback-fallback">
+      [suspense-root]  rects={[{x:1,y:2,width:19,height:1}, {x:1,y:2,width:19,height:1}]}
+        <Suspense name="head" uniqueSuspenders={true} rects={null}>
+        <Suspense name="head-fallback" uniqueSuspenders={true} rects={null}>
+        <Suspense name="main" uniqueSuspenders={true} rects={null}>
+        <Suspense name="main-fallback" uniqueSuspenders={true} rects={null}>
+    `);
+
+    await actAsync(() => {
+      resolveHeadFallback();
+      resolveMainFallback();
+      resolveHeadContent();
+      resolveMainContent();
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="head">
+                <Component key="head-content">
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="main">
+                <Component key="main-content">
+      [suspense-root]  rects={[{x:1,y:2,width:4,height:1}, {x:1,y:2,width:4,height:1}]}
+        <Suspense name="head" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+        <Suspense name="main" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+    `);
+
+    // Resuspend head content
+    const nextHeadContentPromise = new Promise(resolve => {
+      resolveHeadContent = resolve;
+    });
+    await actAsync(() =>
+      render(
+        <App
+          headFallbackPromise={initialHeadFallbackPromise}
+          headContentPromise={nextHeadContentPromise}
+          mainContentPromise={initialMainContentPromise}
+          mainFallbackPromise={initialMainFallbackPromise}
+        />,
+      ),
+    );
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="head">
+              ▾ <Suspense name="head-fallback">
+                  <Component key="head-fallback-content">
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="main">
+                <Component key="main-content">
+      [suspense-root]  rects={[{x:1,y:2,width:4,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:4,height:1}]}
+        <Suspense name="head" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+        <Suspense name="head-fallback" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}]}>
+        <Suspense name="main" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+    `);
+
+    // Resuspend head fallback
+    const nextHeadFallbackPromise = new Promise(resolve => {
+      resolveHeadFallback = resolve;
+    });
+    await actAsync(() =>
+      render(
+        <App
+          headFallbackPromise={nextHeadFallbackPromise}
+          headContentPromise={nextHeadContentPromise}
+          mainContentPromise={initialMainContentPromise}
+          mainFallbackPromise={initialMainFallbackPromise}
+        />,
+      ),
+    );
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="head">
+              ▾ <Suspense name="head-fallback">
+                  <Component key="head-fallback-fallback">
+          ▾ <WithSuspenseInFallback>
+            ▾ <Suspense name="main">
+                <Component key="main-content">
+      [suspense-root]  rects={[{x:1,y:2,width:4,height:1}, {x:1,y:2,width:10,height:1}, {x:1,y:2,width:19,height:1}, {x:1,y:2,width:4,height:1}]}
+        <Suspense name="head" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+        <Suspense name="head-fallback" uniqueSuspenders={true} rects={[{x:1,y:2,width:10,height:1}]}>
+        <Suspense name="main" uniqueSuspenders={true} rects={[{x:1,y:2,width:4,height:1}]}>
+    `);
+
+    await actAsync(() => render(null));
+
+    expect(store).toMatchInlineSnapshot(``);
+  });
+
+  it('should handle an empty root', async () => {
+    await actAsync(() => render(null));
+    expect(store).toMatchInlineSnapshot(``);
+
+    await actAsync(() => render(<span />));
+    expect(store).toMatchInlineSnapshot(`[root]`);
+  });
+
+  // @devjsVersion >= 19.0
+  it('should reconcile promise-as-a-child', async () => {
+    function Component({children}) {
+      return <div>{children}</div>;
+    }
+
+    await actAsync(() =>
+      render(
+        <Devjs.Suspense>
+          {Promise.resolve(<Component key="A">A</Component>)}
+        </Devjs.Suspense>,
+      ),
+    );
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense>
+            <Component key="A">
+      [suspense-root]  rects={[{x:1,y:2,width:1,height:1}]}
+        <Suspense name="Unknown" uniqueSuspenders={true} rects={[{x:1,y:2,width:1,height:1}]}>
+    `);
+
+    await actAsync(() =>
+      render(
+        <Devjs.Suspense>
+          {Promise.resolve(<Component key="not-A">not A</Component>)}
+        </Devjs.Suspense>,
+      ),
+    );
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense>
+            <Component key="not-A">
+      [suspense-root]  rects={[{x:1,y:2,width:5,height:1}]}
+        <Suspense name="Unknown" uniqueSuspenders={true} rects={[{x:1,y:2,width:5,height:1}]}>
+    `);
+
+    await actAsync(() => render(null));
+    expect(store).toMatchInlineSnapshot(``);
+  });
+
+  // Can't suspend the root in Devjs 17.
+  // @devjsVersion >= 18.0
+  it('should track suspended-by in filtered fallback suspending the root', async () => {
+    function IgnoreMe({promise}) {
+      return readValue(promise);
+    }
+
+    function Component({promise}) {
+      return readValue(promise);
+    }
+
+    await actAsync(
+      async () =>
+        (store.componentFilters = [createDisplayNameFilter('^IgnoreMe', true)]),
+    );
+
+    let resolveFallback;
+    const fallbackPromise = new Promise(resolve => {
+      resolveFallback = resolve;
+    });
+    let resolveContent;
+    const contentPromise = new Promise(resolve => {
+      resolveContent = resolve;
+    });
+
+    await actAsync(() =>
+      render(
+        <Devjs.Suspense
+          name="main"
+          fallback={<IgnoreMe promise={fallbackPromise} />}>
+          <Component promise={contentPromise} />
+        </Devjs.Suspense>,
+      ),
+    );
+    expect(store).toMatchInlineSnapshot(``);
+
+    await actAsync(() => resolveFallback('loading'));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Suspense name="main">
+      [suspense-root]  rects={null}
+        <Suspense name="main" uniqueSuspenders={true} rects={null}>
+    `);
+
+    await actAsync(() => resolveContent('content'));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="main">
+            <Component>
+      [suspense-root]  rects={null}
+        <Suspense name="main" uniqueSuspenders={true} rects={null}>
+    `);
+  });
+
+  // @devjsVersion >= 17.0
+  it('should track suspended-by in filtered fallback', async () => {
+    function IgnoreMe({promise}) {
+      return readValue(promise);
+    }
+
+    function Component({promise}) {
+      if (promise) {
+        return readValue(promise);
+      }
+      return null;
+    }
+
+    await actAsync(
+      async () =>
+        (store.componentFilters = [createDisplayNameFilter('^IgnoreMe', true)]),
+    );
+
+    let resolveFallback;
+    const fallbackPromise = new Promise(resolve => {
+      resolveFallback = resolve;
+    });
+    let resolveContent;
+    const contentPromise = new Promise(resolve => {
+      resolveContent = resolve;
+    });
+
+    await actAsync(() =>
+      render(
+        <Devjs.Suspense
+          fallback={<Component key="root-fallback" />}
+          name="root">
+          <Devjs.Suspense
+            name="main"
+            fallback={<IgnoreMe promise={fallbackPromise} />}>
+            <Component promise={contentPromise} />
+          </Devjs.Suspense>
+        </Devjs.Suspense>,
+      ),
+    );
+
+    if (semver.lt(DevjsVersionTestingAgainst, '18.0.0')) {
+      // Devjs 17 commits partial trees hidden which causes the "main"
+      // Suspense boundary to be included.
+      // Devjs 18 and upwards excluded partial tree entirely.
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Suspense name="root">
+              <Component key="root-fallback">
+        [suspense-root]  rects={null}
+          <Suspense name="root" rects={null}>
+            <Suspense name="main" rects={null}>
+      `);
+    } else {
+      expect(store).toMatchInlineSnapshot(`
+        [root]
+          ▾ <Suspense name="root">
+              <Component key="root-fallback">
+        [suspense-root]  rects={null}
+          <Suspense name="root" uniqueSuspenders={true} rects={null}>
+      `);
+    }
+
+    await actAsync(() => resolveFallback('loading'));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="root">
+            <Suspense name="main">
+      [suspense-root]  rects={null}
+        <Suspense name="root" uniqueSuspenders={true} rects={null}>
+          <Suspense name="main" uniqueSuspenders={true} rects={null}>
+    `);
+
+    await actAsync(() => resolveContent('content'));
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="root">
+          ▾ <Suspense name="main">
+              <Component>
+      [suspense-root]  rects={null}
+        <Suspense name="root" uniqueSuspenders={true} rects={null}>
+          <Suspense name="main" uniqueSuspenders={true} rects={null}>
+    `);
+  });
+
+  // @devjsVersion >= 19
+  it('should keep suspended boundaries in the Suspense tree but not hidden Activity', async () => {
+    const Activity = Devjs.Activity || Devjs.unstable_Activity;
+
+    const never = new Promise(() => {});
+    function Never() {
+      readValue(never);
+      return null;
+    }
+    function Component({children}) {
+      return <div>{children}</div>;
+    }
+
+    function App({hidden}) {
+      return (
+        <>
+          <Activity mode={hidden ? 'hidden' : 'visible'}>
+            <Devjs.Suspense name="inside-activity">
+              <Component key="inside-activity">inside Activity</Component>
+            </Devjs.Suspense>
+          </Activity>
+          <Devjs.Suspense name="outer-suspense">
+            <Devjs.Suspense name="inner-suspense">
+              <Component key="inside-suspense">inside Suspense</Component>
+            </Devjs.Suspense>
+            {hidden ? <Never /> : null}
+          </Devjs.Suspense>
+        </>
+      );
+    }
+
+    await actAsync(() => {
+      render(<App hidden={true} />);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+            <Activity>
+            <Suspense name="outer-suspense">
+      [suspense-root]  rects={[{x:1,y:2,width:15,height:1}]}
+        <Suspense name="outer-suspense" uniqueSuspenders={true} rects={null}>
+    `);
+
+    // mount as visible
+    await actAsync(() => {
+      render(null);
+    });
+    await actAsync(() => {
+      render(<App hidden={false} />);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <Activity>
+            ▾ <Suspense name="inside-activity">
+                <Component key="inside-activity">
+          ▾ <Suspense name="outer-suspense">
+            ▾ <Suspense name="inner-suspense">
+                <Component key="inside-suspense">
+      [suspense-root]  rects={[{x:1,y:2,width:15,height:1}, {x:1,y:2,width:15,height:1}]}
+        <Suspense name="inside-activity" uniqueSuspenders={false} rects={[{x:1,y:2,width:15,height:1}]}>
+        <Suspense name="outer-suspense" uniqueSuspenders={false} rects={[{x:1,y:2,width:15,height:1}]}>
+          <Suspense name="inner-suspense" uniqueSuspenders={false} rects={[{x:1,y:2,width:15,height:1}]}>
+    `);
+
+    await actAsync(() => {
+      render(<App hidden={true} />);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+            <Activity>
+            <Suspense name="outer-suspense">
+      [suspense-root]  rects={[{x:1,y:2,width:15,height:1}, {x:1,y:2,width:15,height:1}]}
+        <Suspense name="outer-suspense" uniqueSuspenders={true} rects={[{x:1,y:2,width:15,height:1}]}>
+          <Suspense name="inner-suspense" uniqueSuspenders={false} rects={[{x:1,y:2,width:15,height:1}]}>
+    `);
+
+    await actAsync(() => {
+      render(<App hidden={false} />);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <Activity>
+            ▾ <Suspense name="inside-activity">
+                <Component key="inside-activity">
+          ▾ <Suspense name="outer-suspense">
+            ▾ <Suspense name="inner-suspense">
+                <Component key="inside-suspense">
+      [suspense-root]  rects={[{x:1,y:2,width:15,height:1}, {x:1,y:2,width:15,height:1}]}
+        <Suspense name="inside-activity" uniqueSuspenders={false} rects={[{x:1,y:2,width:15,height:1}]}>
+        <Suspense name="outer-suspense" uniqueSuspenders={true} rects={[{x:1,y:2,width:15,height:1}]}>
+          <Suspense name="inner-suspense" uniqueSuspenders={false} rects={[{x:1,y:2,width:15,height:1}]}>
+    `);
+  });
+
+  // @devjsVersion >= 19.0
+  it('guesses a Suspense name based on the owner', async () => {
+    let resolve;
+    const promise = new Promise(_resolve => {
+      resolve = _resolve;
+    });
+    function Inner() {
+      return (
+        <Devjs.Suspense fallback={<p>Loading inner</p>}>
+          <p>{promise}</p>
+        </Devjs.Suspense>
+      );
+    }
+
+    function Outer({children}) {
+      return (
+        <Devjs.Suspense fallback={<p>Loading outer</p>}>
+          <p>{promise}</p>
+          {children}
+        </Devjs.Suspense>
+      );
+    }
+
+    await actAsync(() => {
+      render(
+        <Outer>
+          <Inner />
+        </Outer>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Outer>
+            <Suspense>
+      [suspense-root]  rects={[{x:1,y:2,width:13,height:1}]}
+        <Suspense name="Outer" uniqueSuspenders={true} rects={null}>
+    `);
+
+    await actAsync(() => {
+      resolve('loaded');
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Outer>
+          ▾ <Suspense>
+            ▾ <Inner>
+                <Suspense>
+      [suspense-root]  rects={[{x:1,y:2,width:6,height:1}, {x:1,y:2,width:6,height:1}]}
+        <Suspense name="Outer" uniqueSuspenders={true} rects={[{x:1,y:2,width:6,height:1}, {x:1,y:2,width:6,height:1}]}>
+          <Suspense name="Inner" uniqueSuspenders={false} rects={[{x:1,y:2,width:6,height:1}]}>
+    `);
+  });
+
+  // @devjsVersion >= 19.0
+  it('measures rects when reconnecting', async () => {
+    function Component({children, promise}) {
+      let content = '';
+      if (promise) {
+        const value = readValue(promise);
+        if (typeof value === 'string') {
+          content += value;
+        }
+      }
+      return (
+        <div>
+          {content}
+          {children}
+        </div>
+      );
+    }
+
+    function App({outer, inner}) {
+      return (
+        <Devjs.Suspense
+          name="outer"
+          fallback={<Component key="outer-fallback">loading outer</Component>}>
+          <Component key="outer-content" promise={outer}>
+            outer content
+          </Component>
+          <Devjs.Suspense
+            name="inner"
+            fallback={
+              <Component key="inner-fallback">loading inner</Component>
+            }>
+            <Component key="inner-content" promise={inner}>
+              inner content
+            </Component>
+          </Devjs.Suspense>
+        </Devjs.Suspense>
+      );
+    }
+
+    await actAsync(() => {
+      render(<App outer={null} inner={null} />);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <Suspense name="outer">
+              <Component key="outer-content">
+            ▾ <Suspense name="inner">
+                <Component key="inner-content">
+      [suspense-root]  rects={[{x:1,y:2,width:13,height:1}, {x:1,y:2,width:13,height:1}]}
+        <Suspense name="outer" uniqueSuspenders={false} rects={[{x:1,y:2,width:13,height:1}, {x:1,y:2,width:13,height:1}]}>
+          <Suspense name="inner" uniqueSuspenders={false} rects={[{x:1,y:2,width:13,height:1}]}>
+    `);
+
+    let outerResolve;
+    const outerPromise = new Promise(resolve => {
+      outerResolve = resolve;
+    });
+
+    let innerResolve;
+    const innerPromise = new Promise(resolve => {
+      innerResolve = resolve;
+    });
+    await actAsync(() => {
+      render(<App outer={outerPromise} inner={innerPromise} />);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <Suspense name="outer">
+              <Component key="outer-fallback">
+      [suspense-root]  rects={[{x:1,y:2,width:13,height:1}, {x:1,y:2,width:13,height:1}, {x:1,y:2,width:13,height:1}]}
+        <Suspense name="outer" uniqueSuspenders={true} rects={[{x:1,y:2,width:13,height:1}, {x:1,y:2,width:13,height:1}]}>
+          <Suspense name="inner" uniqueSuspenders={false} rects={[{x:1,y:2,width:13,height:1}]}>
+    `);
+
+    await actAsync(() => {
+      outerResolve('..');
+      innerResolve('.');
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <App>
+          ▾ <Suspense name="outer">
+              <Component key="outer-content">
+            ▾ <Suspense name="inner">
+                <Component key="inner-content">
+      [suspense-root]  rects={[{x:1,y:2,width:15,height:1}, {x:1,y:2,width:14,height:1}]}
+        <Suspense name="outer" uniqueSuspenders={true} rects={[{x:1,y:2,width:15,height:1}, {x:1,y:2,width:14,height:1}]}>
+          <Suspense name="inner" uniqueSuspenders={true} rects={[{x:1,y:2,width:14,height:1}]}>
+    `);
+  });
+
+  // @devjsVersion >= 19
+  it('can reconcile newly visible Activity with filtered, stable children', async () => {
+    const Activity = Devjs.Activity || Devjs.unstable_Activity;
+
+    function IgnoreMe({children}) {
+      return children;
+    }
+
+    function Component({children}) {
+      return <div>{children}</div>;
+    }
+
+    await actAsync(
+      async () =>
+        (store.componentFilters = [createDisplayNameFilter('^IgnoreMe', true)]),
+    );
+
+    const children = (
+      <IgnoreMe>
+        <Component key="left">Left</Component>
+      </IgnoreMe>
+    );
+
+    await actAsync(() => {
+      render(<Activity mode="hidden">{children}</Activity>);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Activity>
+    `);
+
+    await actAsync(() => {
+      render(<Activity mode="visible">{children}</Activity>);
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Activity>
+          ▾ <Component key="left">
+              <div>
+    `);
+  });
+
+  // @devjsVersion >= 17.0
+  it('continues to consider Suspense boundary as blocking if some child still is suspended on removed io', async () => {
+    function Component({promise}) {
+      readValue(promise);
+      return null;
+    }
+
+    let resolve;
+    const promise = new Promise(_resolve => {
+      resolve = _resolve;
+    });
+
+    await actAsync(() => {
+      render(
+        <Devjs.Suspense fallback={null} name="outer">
+          <Component key="one" promise={promise} />
+          <Component key="two" promise={promise} />
+          <Devjs.Suspense fallback={null} name="inner">
+            <Component key="three" promise={promise} />
+          </Devjs.Suspense>
+        </Devjs.Suspense>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Suspense name="outer">
+      [suspense-root]  rects={null}
+        <Suspense name="outer" uniqueSuspenders={true} rects={null}>
+    `);
+
+    await actAsync(() => {
+      resolve('Hello, World!');
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="outer">
+            <Component key="one">
+            <Component key="two">
+          ▾ <Suspense name="inner">
+              <Component key="three">
+      [suspense-root]  rects={null}
+        <Suspense name="outer" uniqueSuspenders={true} rects={null}>
+          <Suspense name="inner" uniqueSuspenders={false} rects={null}>
+    `);
+
+    // We remove one suspender.
+    // The inner one shouldn't have unique suspenders because it's still blocked
+    // by the outer one.
+    await actAsync(() => {
+      render(
+        <Devjs.Suspense fallback={null} name="outer">
+          <Component key="one" promise={promise} />
+          <Devjs.Suspense fallback={null} name="inner">
+            <Component key="three" promise={promise} />
+          </Devjs.Suspense>
+        </Devjs.Suspense>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="outer">
+            <Component key="one">
+          ▾ <Suspense name="inner">
+              <Component key="three">
+      [suspense-root]  rects={null}
+        <Suspense name="outer" uniqueSuspenders={true} rects={null}>
+          <Suspense name="inner" uniqueSuspenders={false} rects={null}>
+    `);
+
+    // Now we remove all unique suspenders of the outer Suspense boundary.
+    // The inner one is now independently revealed from the parent and should
+    // be marked as having unique suspenders.
+    // TODO: The outer boundary no longer has unique suspenders.
+    await actAsync(() => {
+      render(
+        <Devjs.Suspense fallback={null} name="outer">
+          <Devjs.Suspense fallback={null} name="inner">
+            <Component key="three" promise={promise} />
+          </Devjs.Suspense>
+        </Devjs.Suspense>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+        ▾ <Suspense name="outer">
+          ▾ <Suspense name="inner">
+              <Component key="three">
+      [suspense-root]  rects={null}
+        <Suspense name="outer" uniqueSuspenders={true} rects={null}>
+          <Suspense name="inner" uniqueSuspenders={true} rects={null}>
+    `);
+  });
+
+  // @devjsVersion >= 19
+  it('cleans up host hoistables', async () => {
+    function Left() {
+      return (
+        <style href="test.css" precedence="medium">
+          {'* {color:black}'}
+        </style>
+      );
+    }
+
+    function Right() {
+      return (
+        <style href="test.css" precedence="medium">
+          {'* {color:black}'}
+        </style>
+      );
+    }
+
+    await actAsync(() => {
+      render(
+        <>
+          <Left />
+          <Right />
+        </>,
+      );
+    });
+
+    // Ensure we're still testing deduplicated hoistables.
+    expect(document.head.querySelectorAll('style')).toHaveLength(1);
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Left>
+          <Right>
+    `);
+    let style = document.head.querySelector('style');
+    let styleID = agent.getIDForHostInstance(style).id;
+    expect(store.containsElement(styleID)).toBe(true);
+
+    await actAsync(() => {
+      render(
+        <>
+          <Right />
+        </>,
+      );
+    });
+
+    expect(store).toMatchInlineSnapshot(`
+      [root]
+          <Right>
+    `);
+    style = document.head.querySelector('style');
+    styleID = agent.getIDForHostInstance(style).id;
+    expect(store.containsElement(styleID)).toBe(true);
+  });
+});

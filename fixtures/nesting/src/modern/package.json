@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "name": "devjs-nesting-example-modern",
+  "dependencies": {
+    "devjs": "0.0.0-3d0895557",
+    "devjs-dom": "0.0.0-3d0895557",
+    "devjs-redux": "7.2.1",
+    "devjs-router-dom": "5.2.0"
+  }
+}

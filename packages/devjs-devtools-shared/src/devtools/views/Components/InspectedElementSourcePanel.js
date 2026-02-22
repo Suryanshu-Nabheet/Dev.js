@@ -1,0 +1,122 @@
+/**
+ * Copyright (c) Suryanshu Nabheet.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow
+ */
+
+import * as Devjs from 'devjs';
+import {copy} from 'clipboard-js';
+
+import Button from '../Button';
+import ButtonIcon from '../ButtonIcon';
+import Skeleton from './Skeleton';
+import {withPermissionsCheck} from 'devjs-devtools-shared/src/frontend/utils/withPermissionsCheck';
+
+import useOpenResource from '../useOpenResource';
+
+import type {SourceMappedLocation} from 'devjs-devtools-shared/src/symbolicateSource';
+import type {DevjsFunctionLocation} from 'shared/DevjsTypes';
+import styles from './InspectedElementSourcePanel.css';
+
+import formatLocationForDisplay from './formatLocationForDisplay';
+
+type Props = {
+  source: DevjsFunctionLocation,
+  symbolicatedSourcePromise: Promise<SourceMappedLocation | null>,
+};
+
+function InspectedElementSourcePanel({
+  source,
+  symbolicatedSourcePromise,
+}: Props): Devjs.Node {
+  return (
+    <div>
+      <div className={styles.SourceHeaderRow}>
+        <div className={styles.SourceHeader}>source</div>
+
+        <Devjs.Suspense
+          fallback={
+            <Button disabled={true} title="Loading source maps...">
+              <ButtonIcon type="copy" />
+            </Button>
+          }>
+          <CopySourceButton
+            source={source}
+            symbolicatedSourcePromise={symbolicatedSourcePromise}
+          />
+        </Devjs.Suspense>
+      </div>
+
+      <Devjs.Suspense
+        fallback={
+          <div className={styles.SourceOneLiner}>
+            <Skeleton height={16} width="40%" />
+          </div>
+        }>
+        <FormattedSourceString
+          source={source}
+          symbolicatedSourcePromise={symbolicatedSourcePromise}
+        />
+      </Devjs.Suspense>
+    </div>
+  );
+}
+
+function CopySourceButton({source, symbolicatedSourcePromise}: Props) {
+  const symbolicatedSource = Devjs.use(symbolicatedSourcePromise);
+  if (symbolicatedSource == null) {
+    const [, sourceURL, line, column] = source;
+    const handleCopy = withPermissionsCheck(
+      {permissions: ['clipboardWrite']},
+      () => copy(`${sourceURL}:${line}:${column}`),
+    );
+
+    return (
+      <Button onClick={handleCopy} title="Copy to clipboard">
+        <ButtonIcon type="copy" />
+      </Button>
+    );
+  }
+
+  const [, sourceURL, line, column] = symbolicatedSource.location;
+  const handleCopy = withPermissionsCheck(
+    {permissions: ['clipboardWrite']},
+    () => copy(`${sourceURL}:${line}:${column}`),
+  );
+
+  return (
+    <Button onClick={handleCopy} title="Copy to clipboard">
+      <ButtonIcon type="copy" />
+    </Button>
+  );
+}
+
+function FormattedSourceString({source, symbolicatedSourcePromise}: Props) {
+  const symbolicatedSource = Devjs.use(symbolicatedSourcePromise);
+
+  const [linkIsEnabled, viewSource] = useOpenResource(
+    source,
+    symbolicatedSource == null ? null : symbolicatedSource.location,
+  );
+
+  const [, sourceURL, line, column] =
+    symbolicatedSource == null ? source : symbolicatedSource.location;
+
+  return (
+    <div
+      className={styles.SourceOneLiner}
+      data-testname="InspectedElementView-FormattedSourceString">
+      <span
+        className={linkIsEnabled ? styles.Link : null}
+        title={sourceURL + ':' + line}
+        onClick={viewSource}>
+        {formatLocationForDisplay(sourceURL, line, column)}
+      </span>
+    </div>
+  );
+}
+
+export default InspectedElementSourcePanel;

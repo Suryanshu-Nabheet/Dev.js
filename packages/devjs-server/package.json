@@ -1,0 +1,31 @@
+{
+  "name": "devjs-server",
+  "description": "Devjs package for creating custom streaming server renderers.",
+  "version": "0.1.0",
+  "private": true,
+  "keywords": [
+    "devjs"
+  ],
+  "homepage": "https://devjs.dev/",
+  "bugs": "https://github.com/Suryanshu-Nabheet/dev.js/issues",
+  "license": "MIT",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "flight.js",
+    "cjs/"
+  ],
+  "main": "index.js",
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-server"
+  },
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "peerDependencies": {
+    "devjs": "^17.0.0"
+  }
+}

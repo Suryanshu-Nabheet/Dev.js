@@ -1,0 +1,309 @@
+# Devjs Compiler Passes Documentation
+
+This directory contains detailed documentation for each pass in the Devjs Compiler pipeline. The compiler transforms Devjs components and hooks to add automatic memoization.
+
+## High-Level Architecture
+
+```
+                    ┌─────────────────────────────────────────────────────────────┐
+                    │                     COMPILATION PIPELINE                      │
+                    └─────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 1: HIR CONSTRUCTION                                                          │
+│  ┌─────────┐                                                                        │
+│  │  Babel  │──▶ lower ──▶ enterSSA ──▶ eliminateRedundantPhi                        │
+│  │   AST   │              │                                                         │
+│  └─────────┘              ▼                                                         │
+│                     ┌──────────┐                                                    │
+│                     │   HIR    │  (Control Flow Graph in SSA Form)                  │
+│                     └──────────┘                                                    │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 2: OPTIMIZATION                                                              │
+│                                                                                     │
+│  constantPropagation ──▶ deadCodeElimination                                         │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 3: TYPE & EFFECT INFERENCE                                                   │
+│                                                                                     │
+│  inferTypes ──▶ analyseFunctions ──▶ inferMutationAliasingEffects                   │
+│                                              │                                      │
+│                                              ▼                                      │
+│                         inferMutationAliasingRanges ──▶ inferDevjsivePlaces         │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 4: devjsIVE SCOPE CONSTRUCTION                                               │
+│                                                                                     │
+│  inferDevjsiveScopeVariables ──▶ alignMethodCallScopes ──▶ alignObjectMethodScopes  │
+│              │                                                                      │
+│              ▼                                                                      │
+│  alignDevjsiveScopesToBlockScopesHIR ──▶ mergeOverlappingDevjsiveScopesHIR          │
+│              │                                                                      │
+│              ▼                                                                      │
+│  buildDevjsiveScopeTerminalsHIR ──▶ flattenDevjsiveLoopsHIR                         │
+│              │                                                                      │
+│              ▼                                                                      │
+│  flattenScopesWithHooksOrUseHIR ──▶ propagateScopeDependenciesHIR                   │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 5: HIR → devjsIVE FUNCTION                                                   │
+│                                                                                     │
+│                           buildDevjsiveFunction                                     │
+│                                    │                                                │
+│                                    ▼                                                │
+│                         ┌───────────────────┐                                       │
+│                         │ DevjsiveFunction  │  (Tree Structure)                     │
+│                         └───────────────────┘                                       │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 6: devjsIVE FUNCTION OPTIMIZATION                                            │
+│                                                                                     │
+│  pruneUnusedLabels ──▶ pruneNonEscapingScopes ──▶ pruneNonDevjsiveDependencies      │
+│              │                                                                      │
+│              ▼                                                                      │
+│  pruneUnusedScopes ──▶ mergeDevjsiveScopesThatInvalidateTogether                    │
+│              │                                                                      │
+│              ▼                                                                      │
+│  pruneAlwaysInvalidatingScopes ──▶ propagateEarlyReturns ──▶ promoteUsedTemporaries │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 7: CODE GENERATION                                                           │
+│                                                                                     │
+│  renameVariables ──▶ codegenDevjsiveFunction                                        │
+│                              │                                                      │
+│                              ▼                                                      │
+│                      ┌─────────────┐                                                │
+│                      │  Babel AST  │  (With Memoization)                            │
+│                      └─────────────┘                                                │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Pass Categories
+
+### HIR Construction & SSA (1-3)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 1 | [lower](01-lower.md) | `HIR/BuildHIR.ts` | Convert Babel AST to HIR control-flow graph |
+| 2 | [enterSSA](02-enterSSA.md) | `SSA/EnterSSA.ts` | Convert to Static Single Assignment form |
+| 3 | [eliminateRedundantPhi](03-eliminateRedundantPhi.md) | `SSA/EliminateRedundantPhi.ts` | Remove unnecessary phi nodes |
+
+### Optimization (4-5)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 4 | [constantPropagation](04-constantPropagation.md) | `Optimization/ConstantPropagation.ts` | Sparse conditional constant propagation |
+| 5 | [deadCodeElimination](05-deadCodeElimination.md) | `Optimization/DeadCodeElimination.ts` | Remove unreferenced instructions |
+
+### Type Inference (6)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 6 | [inferTypes](06-inferTypes.md) | `TypeInference/InferTypes.ts` | Constraint-based type unification |
+
+### Mutation/Aliasing Inference (7-10)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 7 | [analyseFunctions](07-analyseFunctions.md) | `Inference/AnalyseFunctions.ts` | Analyze nested function effects |
+| 8 | [inferMutationAliasingEffects](08-inferMutationAliasingEffects.md) | `Inference/InferMutationAliasingEffects.ts` | Infer mutation/aliasing via abstract interpretation |
+| 9 | [inferMutationAliasingRanges](09-inferMutationAliasingRanges.md) | `Inference/InferMutationAliasingRanges.ts` | Compute mutable ranges from effects |
+| 10 | [inferDevjsivePlaces](10-inferDevjsivePlaces.md) | `Inference/InferDevjsivePlaces.ts` | Mark devjsive places (props, hooks, derived) |
+
+### Devjsive Scope Variables (11-12)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 11 | [inferDevjsiveScopeVariables](11-inferDevjsiveScopeVariables.md) | `DevjsiveScopes/InferDevjsiveScopeVariables.ts` | Group co-mutating variables into scopes |
+| 12 | [rewriteInstructionKindsBasedOnReassignment](12-rewriteInstructionKindsBasedOnReassignment.md) | `SSA/RewriteInstructionKindsBasedOnReassignment.ts` | Convert SSA loads to context loads for reassigned vars |
+
+### Scope Alignment (13-15)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 13 | [alignMethodCallScopes](13-alignMethodCallScopes.md) | `DevjsiveScopes/AlignMethodCallScopes.ts` | Align method call scopes with receivers |
+| 14 | [alignObjectMethodScopes](14-alignObjectMethodScopes.md) | `DevjsiveScopes/AlignObjectMethodScopes.ts` | Align object method scopes |
+| 15 | [alignDevjsiveScopesToBlockScopesHIR](15-alignDevjsiveScopesToBlockScopesHIR.md) | `DevjsiveScopes/AlignDevjsiveScopesToBlockScopesHIR.ts` | Align to control-flow block boundaries |
+
+### Scope Construction (16-18)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 16 | [mergeOverlappingDevjsiveScopesHIR](16-mergeOverlappingDevjsiveScopesHIR.md) | `HIR/MergeOverlappingDevjsiveScopesHIR.ts` | Merge overlapping scopes |
+| 17 | [buildDevjsiveScopeTerminalsHIR](17-buildDevjsiveScopeTerminalsHIR.md) | `HIR/BuildDevjsiveScopeTerminalsHIR.ts` | Insert scope terminals into CFG |
+| 18 | [flattenDevjsiveLoopsHIR](18-flattenDevjsiveLoopsHIR.md) | `DevjsiveScopes/FlattenDevjsiveLoopsHIR.ts` | Prune scopes inside loops |
+
+### Scope Flattening & Dependencies (19-20)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 19 | [flattenScopesWithHooksOrUseHIR](19-flattenScopesWithHooksOrUseHIR.md) | `DevjsiveScopes/FlattenScopesWithHooksOrUseHIR.ts` | Prune scopes containing hooks |
+| 20 | [propagateScopeDependenciesHIR](20-propagateScopeDependenciesHIR.md) | `HIR/PropagateScopeDependenciesHIR.ts` | Derive minimal scope dependencies |
+
+### HIR → Devjsive Conversion (21)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 21 | [buildDevjsiveFunction](21-buildDevjsiveFunction.md) | `DevjsiveScopes/BuildDevjsiveFunction.ts` | Convert CFG to tree structure |
+
+### Devjsive Function Pruning (22-25)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 22 | [pruneUnusedLabels](22-pruneUnusedLabels.md) | `DevjsiveScopes/PruneUnusedLabels.ts` | Remove unused labels |
+| 23 | [pruneNonEscapingScopes](23-pruneNonEscapingScopes.md) | `DevjsiveScopes/PruneNonEscapingScopes.ts` | Remove non-escaping scopes |
+| 24 | [pruneNonDevjsiveDependencies](24-pruneNonDevjsiveDependencies.md) | `DevjsiveScopes/PruneNonDevjsiveDependencies.ts` | Remove non-devjsive dependencies |
+| 25 | [pruneUnusedScopes](25-pruneUnusedScopes.md) | `DevjsiveScopes/PruneUnusedScopes.ts` | Remove empty scopes |
+
+### Scope Optimization (26-28)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 26 | [mergeDevjsiveScopesThatInvalidateTogether](26-mergeDevjsiveScopesThatInvalidateTogether.md) | `DevjsiveScopes/MergeDevjsiveScopesThatInvalidateTogether.ts` | Merge co-invalidating scopes |
+| 27 | [pruneAlwaysInvalidatingScopes](27-pruneAlwaysInvalidatingScopes.md) | `DevjsiveScopes/PruneAlwaysInvalidatingScopes.ts` | Prune always-invalidating scopes |
+| 28 | [propagateEarlyReturns](28-propagateEarlyReturns.md) | `DevjsiveScopes/PropagateEarlyReturns.ts` | Handle early returns in scopes |
+
+### Codegen Preparation (29-31)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 29 | [promoteUsedTemporaries](29-promoteUsedTemporaries.md) | `DevjsiveScopes/PromoteUsedTemporaries.ts` | Promote temps to named vars |
+| 30 | [renameVariables](30-renameVariables.md) | `DevjsiveScopes/RenameVariables.ts` | Ensure unique variable names |
+| 31 | [codegenDevjsiveFunction](31-codegenDevjsiveFunction.md) | `DevjsiveScopes/CodegenDevjsiveFunction.ts` | Generate final Babel AST |
+
+### Transformations (32-38)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 34 | [optimizePropsMethodCalls](34-optimizePropsMethodCalls.md) | `Optimization/OptimizePropsMethodCalls.ts` | Normalize props method calls |
+| 35 | [optimizeForSSR](35-optimizeForSSR.md) | `Optimization/OptimizeForSSR.ts` | SSR-specific optimizations |
+| 36 | [outlineJSX](36-outlineJSX.md) | `Optimization/OutlineJsx.ts` | Outline JSX to components |
+| 37 | [outlineFunctions](37-outlineFunctions.md) | `Optimization/OutlineFunctions.ts` | Outline pure functions |
+| 38 | [memoizeFbtAndMacroOperandsInSameScope](38-memoizeFbtAndMacroOperandsInSameScope.md) | `DevjsiveScopes/MemoizeFbtAndMacroOperandsInSameScope.ts` | Keep FBT operands together |
+
+### Validation (39-55)
+
+| # | Pass | File | Description |
+|---|------|------|-------------|
+| 39 | [validateContextVariableLValues](39-validateContextVariableLValues.md) | `Validation/ValidateContextVariableLValues.ts` | Variable reference consistency |
+| 40 | [validateUseMemo](40-validateUseMemo.md) | `Validation/ValidateUseMemo.ts` | useMemo callback requirements |
+| 41 | [validateHooksUsage](41-validateHooksUsage.md) | `Validation/ValidateHooksUsage.ts` | Rules of Hooks |
+| 42 | [validateNoCapitalizedCalls](42-validateNoCapitalizedCalls.md) | `Validation/ValidateNoCapitalizedCalls.ts` | Component vs function calls |
+| 43 | [validateLocalsNotReassignedAfterRender](43-validateLocalsNotReassignedAfterRender.md) | `Validation/ValidateLocalsNotReassignedAfterRender.ts` | Variable mutation safety |
+| 44 | [validateNoSetStateInRender](44-validateNoSetStateInRender.md) | `Validation/ValidateNoSetStateInRender.ts` | No setState during render |
+| 45 | [validateNoDerivedComputationsInEffects](45-validateNoDerivedComputationsInEffects.md) | `Validation/ValidateNoDerivedComputationsInEffects.ts` | Effect optimization hints |
+| 46 | [validateNoSetStateInEffects](46-validateNoSetStateInEffects.md) | `Validation/ValidateNoSetStateInEffects.ts` | Effect performance |
+| 47 | [validateNoJSXInTryStatement](47-validateNoJSXInTryStatement.md) | `Validation/ValidateNoJSXInTryStatement.ts` | Error boundary usage |
+| 48 | [validateNoImpureValuesInRender](48-validateNoImpureValuesInRender.md) | `Validation/ValidateNoImpureValuesInRender.ts` | Impure value isolation |
+| 49 | [validateNoRefAccessInRender](49-validateNoRefAccessInRender.md) | `Validation/ValidateNoRefAccessInRender.ts` | Ref access constraints |
+| 50 | [validateNoFreezingKnownMutableFunctions](50-validateNoFreezingKnownMutableFunctions.md) | `Validation/ValidateNoFreezingKnownMutableFunctions.ts` | Mutable function isolation |
+| 51 | [validateExhaustiveDependencies](51-validateExhaustiveDependencies.md) | `Validation/ValidateExhaustiveDependencies.ts` | Dependency array completeness |
+| 53 | [validatePreservedManualMemoization](53-validatePreservedManualMemoization.md) | `Validation/ValidatePreservedManualMemoization.ts` | Manual memo preservation |
+| 54 | [validateStaticComponents](54-validateStaticComponents.md) | `Validation/ValidateStaticComponents.ts` | Component identity stability |
+| 55 | [validateSourceLocations](55-validateSourceLocations.md) | `Validation/ValidateSourceLocations.ts` | Source location preservation |
+
+## Key Data Structures
+
+### HIR (High-level Intermediate Representation)
+
+The compiler converts source code to HIR for analysis. Key types:
+
+- **HIRFunction**: A function being compiled
+  - `body.blocks`: Map of BasicBlocks (control flow graph)
+  - `context`: Captured variables from outer scope
+  - `params`: Function parameters
+  - `returns`: The function's return place
+
+- **BasicBlock**: A sequence of instructions with a terminal
+  - `instructions`: Array of Instructions
+  - `terminal`: Control flow (return, branch, etc.)
+  - `phis`: Phi nodes for SSA
+
+- **Instruction**: A single operation
+  - `lvalue`: The place being assigned to
+  - `value`: The instruction kind (CallExpression, FunctionExpression, etc.)
+  - `effects`: Array of AliasingEffects
+
+- **Place**: A reference to a value
+  - `identifier.id`: Unique IdentifierId
+  - `effect`: How the place is used (read, mutate, etc.)
+
+### DevjsiveFunction
+
+After HIR is analyzed, it's converted to DevjsiveFunction:
+
+- Tree structure instead of CFG
+- Contains DevjsiveScopes that define memoization boundaries
+- Each scope has dependencies and declarations
+
+### AliasingEffects
+
+Effects describe data flow and operations:
+
+- **Capture/Alias**: Value relationships
+- **Mutate/MutateTransitive**: Mutation tracking
+- **Freeze**: Immutability marking
+- **Render**: JSX usage context
+- **Create/CreateFunction**: Value creation
+
+## Feature Flags
+
+Many passes are controlled by feature flags in `Environment.ts`:
+
+| Flag | Enables Pass |
+|------|--------------|
+| `enableJsxOutlining` | outlineJSX |
+| `enableFunctionOutlining` | outlineFunctions |
+| `validateNoSetStateInRender` | validateNoSetStateInRender |
+| `enableUseMemoCacheInterop` | Preserves manual memoization |
+
+## Running Tests
+
+```bash
+# Run all tests
+pnpm snap
+
+# Run specific fixture
+pnpm snap -p <fixture-name>
+
+# Run with debug output (shows all passes)
+pnpm snap -p <fixture-name> -d
+
+# Compile any file (not just fixtures) and see output
+pnpm snap compile <path>
+
+# Compile any file with debug output (alternative to pnpm snap -d -p when you don't have a fixture)
+pnpm snap compile --debug <path>
+
+# Minimize a failing test case to its minimal reproduction
+pnpm snap minimize <path>
+
+# Update expected outputs
+pnpm snap -u
+```
+
+## Further Reading
+
+- [MUTABILITY_ALIASING_MODEL.md](../../src/Inference/MUTABILITY_ALIASING_MODEL.md): Detailed aliasing model docs
+- [Pipeline.ts](../../src/Entrypoint/Pipeline.ts): Pass ordering and orchestration
+- [HIR.ts](../../src/HIR/HIR.ts): Core data structure definitions

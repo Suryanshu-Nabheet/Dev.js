@@ -1,0 +1,5 @@
+{
+  "name": "devjs-devtools-experimental-firefox",
+  "alias": ["devjs-devtools-experimental-firefox"],
+  "files": ["index.html", "DevjsDevTools.zip"]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "devjs-noop-renderer",
+  "version": "16.0.0",
+  "private": true,
+  "description": "Devjs package for testing the Fiber, Fizz and Flight reconcilers.",
+  "main": "index.js",
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-noop-renderer"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "devjs-reconciler": "*",
+    "devjs-client": "*",
+    "devjs-server": "*"
+  },
+  "peerDependencies": {
+    "devjs": "^17.0.0"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "persistent.js",
+    "server.js",
+    "flight-client.js",
+    "flight-modules.js",
+    "flight-server.js",
+    "cjs/"
+  ]
+}

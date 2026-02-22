@@ -1,0 +1,19 @@
+{
+  "name": "my-new-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "devjs": "file:../build/node_modules/devjs",
+    "devjs-dom": "file:../build/node_modules/devjs-dom",
+    "scheduler": "file:../build/node_modules/scheduler"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
+  }
+}

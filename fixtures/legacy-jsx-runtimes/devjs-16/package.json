@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "prop-types": "^15.7.2",
+    "devjs": "16",
+    "devjs-dom": "16"
+  }
+}

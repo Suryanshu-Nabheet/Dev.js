@@ -1,0 +1,35 @@
+{
+  "name": "devjs-test-renderer",
+  "version": "19.3.0",
+  "description": "Devjs package for snapshot testing.",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js.git",
+    "directory": "packages/devjs-test-renderer"
+  },
+  "keywords": [
+    "devjs",
+    "devjs-native",
+    "devjs-testing"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Suryanshu-Nabheet/dev.js/issues"
+  },
+  "homepage": "https://devjs.dev/",
+  "dependencies": {
+    "devjs-is": "^19.3.0",
+    "scheduler": "^0.28.0"
+  },
+  "peerDependencies": {
+    "devjs": "^19.3.0"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "shallow.js",
+    "cjs/"
+  ]
+}

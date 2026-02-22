@@ -1,0 +1,4 @@
+// @compilationMode:"infer"
+function nonDevjsFn() {
+  return {};
+}
