@@ -1,6 +1,6 @@
 # Dev.js
 
-Dev.js is a devjs-based end-to-end framework engineered for scalability, performance, and developer experience.
+Dev.js is a react-based end-to-end framework engineered for scalability, performance, and developer experience.
 
 ## Overview
 
